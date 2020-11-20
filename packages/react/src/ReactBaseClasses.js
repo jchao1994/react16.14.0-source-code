@@ -17,6 +17,8 @@ if (__DEV__) {
 /**
  * Base class helpers for the updating state of a component.
  */
+// React.Component
+// 这里的updater，是指不同平台（RN或React-DOM）的更新器
 function Component(props, context, updater) {
   this.props = props;
   this.context = context;
@@ -27,6 +29,8 @@ function Component(props, context, updater) {
   this.updater = updater || ReactNoopUpdateQueue;
 }
 
+// 这个属性没怎么用，直接忽略
+// 标记是React Component组件
 Component.prototype.isReactComponent = {};
 
 /**
@@ -54,6 +58,9 @@ Component.prototype.isReactComponent = {};
  * @final
  * @protected
  */
+// 我们可以看到React的setState和forceUpdate，实际都是在调用
+// this.updater.enqueueSetState方法，
+// 这个方法调用的是React-DOM或React Native的方法，和React没有关系，这是由于不同的平台渲染，流程并不相同
 Component.prototype.setState = function(partialState, callback) {
   invariant(
     typeof partialState === 'object' ||
@@ -79,6 +86,7 @@ Component.prototype.setState = function(partialState, callback) {
  * @final
  * @protected
  */
+// forceUpdate 业务代码中少用慎用
 Component.prototype.forceUpdate = function(callback) {
   this.updater.enqueueForceUpdate(this, callback, 'forceUpdate');
 };
@@ -126,6 +134,7 @@ ComponentDummy.prototype = Component.prototype;
 /**
  * Convenience component with default shallow equality check for sCU.
  */
+// React.PureComponent state和props浅层比较优化方式
 function PureComponent(props, context, updater) {
   this.props = props;
   this.context = context;
@@ -138,6 +147,7 @@ const pureComponentPrototype = (PureComponent.prototype = new ComponentDummy());
 pureComponentPrototype.constructor = PureComponent;
 // Avoid an extra prototype jump for these methods.
 Object.assign(pureComponentPrototype, Component.prototype);
+// 标注了一个isPureReactComponent属性，标记是React PureComponent组件
 pureComponentPrototype.isPureReactComponent = true;
 
 export {Component, PureComponent};

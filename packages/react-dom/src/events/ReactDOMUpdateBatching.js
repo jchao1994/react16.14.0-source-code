@@ -75,6 +75,7 @@ export function batchedEventUpdates(fn, a, b) {
   }
 }
 
+// 将isInsideEventHandler设为true，执行fn(a,b,c,d)
 export function discreteUpdates(fn, a, b, c, d) {
   const prevIsInsideEventHandler = isInsideEventHandler;
   isInsideEventHandler = true;

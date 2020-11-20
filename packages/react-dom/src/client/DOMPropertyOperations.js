@@ -133,10 +133,11 @@ export function getValueForAttribute(
  * @param {string} name
  * @param {*} value
  */
+// 给node设置value，如果没有value，就移除老的
 export function setValueForProperty(
-  node: Element,
-  name: string,
-  value: mixed,
+  node: Element, // domElement
+  name: string, // propKey
+  value: mixed, // nextProp
   isCustomComponentTag: boolean,
 ) {
   const propertyInfo = getPropertyInfo(name);
@@ -147,12 +148,15 @@ export function setValueForProperty(
     value = null;
   }
   // If the prop isn't in the special list, treat it as a simple attribute.
+  // 普通属性，做移除removeAttribute和设置setAttribute操作后直接return
   if (isCustomComponentTag || propertyInfo === null) {
     if (isAttributeNameSafe(name)) {
       const attributeName = name;
       if (value === null) {
+        // 移除原属性
         node.removeAttribute(attributeName);
       } else {
+        // 设置新属性
         node.setAttribute(
           attributeName,
           enableTrustedTypesIntegration ? (value: any) : '' + (value: any),
@@ -161,6 +165,7 @@ export function setValueForProperty(
     }
     return;
   }
+  // node.propertyName = value
   const {mustUseProperty} = propertyInfo;
   if (mustUseProperty) {
     const {propertyName} = propertyInfo;
@@ -175,8 +180,12 @@ export function setValueForProperty(
     return;
   }
   // The rest are treated as attributes with special cases.
+  // 其余属性，当作特殊情况
+  // removeAttribute和setAttribute
+  // 这里的setAttribute优先使用带命名空间的setAttributeNS
   const {attributeName, attributeNamespace} = propertyInfo;
   if (value === null) {
+    // 移除
     node.removeAttribute(attributeName);
   } else {
     const {type} = propertyInfo;

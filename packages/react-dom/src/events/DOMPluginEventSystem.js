@@ -321,10 +321,11 @@ export function listenToNonDelegatedEvent(
   }
 }
 
+// React DOM中注册一个事件的最终落脚点都是listenToNativeEvent
 export function listenToNativeEvent(
-  domEventName: DOMEventName,
-  isCapturePhaseListener: boolean,
-  target: EventTarget,
+  domEventName: DOMEventName, // 事件名
+  isCapturePhaseListener: boolean, // 是否捕获事件
+  target: EventTarget, // 事件容器
 ): void {
   if (__DEV__) {
     if (nonDelegatedEvents.has(domEventName) && !isCapturePhaseListener) {
@@ -338,12 +339,14 @@ export function listenToNativeEvent(
 
   let eventSystemFlags = 0;
   if (isCapturePhaseListener) {
-    eventSystemFlags |= IS_CAPTURE_PHASE;
+    eventSystemFlags |= IS_CAPTURE_PHASE; // 4
   }
+  // 添加事件到targetContainer中，同时处理了capture passive once、
+  // capture和passive直接传入options选项，once为了实现兼容而通过原生实现
   addTrappedEventListener(
     target,
     domEventName,
-    eventSystemFlags,
+    eventSystemFlags, // 事件标志
     isCapturePhaseListener,
   );
 }
@@ -375,16 +378,12 @@ export function listenToNativeEventForNonManagedEventTarget(
   }
 }
 
-const listeningMarker =
-  '_reactListening' +
-  Math.random()
-    .toString(36)
-    .slice(2);
+const listeningMarker = '_reactListening' + Math.random().toString(36).slice(2);
 
 export function listenToAllSupportedEvents(rootContainerElement: EventTarget) {
   if (!(rootContainerElement: any)[listeningMarker]) {
     (rootContainerElement: any)[listeningMarker] = true;
-    allNativeEvents.forEach(domEventName => {
+    allNativeEvents.forEach((domEventName) => {
       // We handle selectionchange separately because it
       // doesn't bubble and needs to be on the document.
       if (domEventName !== 'selectionchange') {
@@ -409,13 +408,16 @@ export function listenToAllSupportedEvents(rootContainerElement: EventTarget) {
   }
 }
 
+// 添加事件到targetContainer中，同时处理了capture passive once、
+// capture和passive直接传入options选项，once为了实现兼容而通过原生实现
 function addTrappedEventListener(
-  targetContainer: EventTarget,
-  domEventName: DOMEventName,
-  eventSystemFlags: EventSystemFlags,
-  isCapturePhaseListener: boolean,
+  targetContainer: EventTarget, // 事件容器
+  domEventName: DOMEventName, // 事件名
+  eventSystemFlags: EventSystemFlags, // 事件标志
+  isCapturePhaseListener: boolean, // 是否捕获事件
   isDeferredListenerForLegacyFBSupport?: boolean,
 ) {
+  // 根据优先级生成对应事件
   let listener = createEventListenerWrapperWithPriority(
     targetContainer,
     domEventName,
@@ -436,6 +438,7 @@ function addTrappedEventListener(
       domEventName === 'touchmove' ||
       domEventName === 'wheel'
     ) {
+      // 被动事件
       isPassiveListener = true;
     }
   }
@@ -457,9 +460,12 @@ function addTrappedEventListener(
   // browsers do not support this today, and given this is
   // to support legacy code patterns, it's likely they'll
   // need support for such browsers.
+  // once事件，为了兼容而没有采用在addEventListener()的第三个可选参数options(capture passive once)中传入once: true
   if (enableLegacyFBSupport && isDeferredListenerForLegacyFBSupport) {
     const originalListener = listener;
-    listener = function(...p) {
+    // 修改原有listener，形成once事件
+    // 在执行listener时移除unsubscribeListener(也就是listener)
+    listener = function (...p) {
       removeEventListener(
         targetContainer,
         domEventName,
@@ -470,7 +476,10 @@ function addTrappedEventListener(
     };
   }
   // TODO: There are too many combinations here. Consolidate them.
+  // 给targetContainer添加listener事件，并返回unsubscribeListener，用于once事件
+  // unsubscribeListener就是上面的listener
   if (isCapturePhaseListener) {
+    // 捕获事件
     if (isPassiveListener !== undefined) {
       unsubscribeListener = addEventCaptureListenerWithPassiveFlag(
         targetContainer,
@@ -486,6 +495,7 @@ function addTrappedEventListener(
       );
     }
   } else {
+    // 非捕获事件
     if (isPassiveListener !== undefined) {
       unsubscribeListener = addEventBubbleListenerWithPassiveFlag(
         targetContainer,
@@ -681,7 +691,7 @@ export function accumulateSinglePhaseListeners(
           lastHostComponent,
         );
         if (eventHandlerListeners !== null) {
-          eventHandlerListeners.forEach(entry => {
+          eventHandlerListeners.forEach((entry) => {
             if (
               entry.type === nativeEventType &&
               entry.capture === inCapturePhase
@@ -720,7 +730,7 @@ export function accumulateSinglePhaseListeners(
         reactScopeInstance,
       );
       if (eventHandlerListeners !== null) {
-        eventHandlerListeners.forEach(entry => {
+        eventHandlerListeners.forEach((entry) => {
           if (
             entry.type === nativeEventType &&
             entry.capture === inCapturePhase
@@ -948,7 +958,7 @@ export function accumulateEventHandleNonManagedNodeListeners(
 
   const eventListeners = getEventHandlerListeners(currentTarget);
   if (eventListeners !== null) {
-    eventListeners.forEach(entry => {
+    eventListeners.forEach((entry) => {
       if (entry.type === reactEventType && entry.capture === inCapturePhase) {
         listeners.push(
           createDispatchListener(null, entry.callback, currentTarget),

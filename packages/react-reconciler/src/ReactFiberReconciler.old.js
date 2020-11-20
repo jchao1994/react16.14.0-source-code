@@ -131,7 +131,7 @@ if (__DEV__) {
 }
 
 function getContextForSubtree(
-  parentComponent: ?React$Component<any, any>,
+  parentComponent: ?React$Component<any, any>, // 父组件
 ): Object {
   if (!parentComponent) {
     return emptyContextObject;
@@ -238,25 +238,32 @@ function findHostInstanceWithWarning(
   return findHostInstance(component);
 }
 
+
+// 内部调用createFiberRoot方法返回一个fiberRoot实例
 export function createContainer(
-  containerInfo: Container,
-  tag: RootTag,
+  containerInfo: Container, // 生成fiberRoot时对应document.getElementById('root')
+  tag: RootTag, // fiberRoot节点的标记(LegacyRoot、BatchedRoot、ConcurrentRoot)
   hydrate: boolean,
   hydrationCallbacks: null | SuspenseHydrationCallbacks,
 ): OpaqueRoot {
   return createFiberRoot(containerInfo, tag, hydrate, hydrationCallbacks);
 }
 
+// updateContainer和setState的更新原理一致
+// update是记录状态改变的对象，存放于单向链表UpdateQueue中
+// 如果在同一个事件中多次调用setState方法，就会同时出现多个update, 它们会在多个setState创建完成之后，放入UpdateQueue中最后一起更新
 export function updateContainer(
-  element: ReactNodeList,
-  container: OpaqueRoot,
-  parentComponent: ?React$Component<any, any>,
+  element: ReactNodeList, // 子元素，如<App />
+  container: OpaqueRoot, // fiberRoot
+  parentComponent: ?React$Component<any, any>, // 父组件
   callback: ?Function,
 ): Lane {
   if (__DEV__) {
     onScheduleRoot(container, element);
   }
+  // 获取当前更新的fiber对象
   const current = container.current;
+  // 获取eventTime（程序运行到此刻的时间戳），React会基于它进行更新优先级排序
   const eventTime = requestEventTime();
   if (__DEV__) {
     // $FlowExpectedError - jest isn't a global, and isn't recognized outside of tests
@@ -265,16 +272,21 @@ export function updateContainer(
       warnIfNotScopedWithMatchingAct(current);
     }
   }
+  // React16.8中引入的泳道概念，替代了ExpirationTime标注更新task的优先级
+  // 旧模式中lane只为SyncLane = 1
   const lane = requestUpdateLane(current);
 
   if (enableSchedulingProfiler) {
     markRenderScheduled(lane);
   }
 
+  // 获取当前树结构的上下文
   const context = getContextForSubtree(parentComponent);
   if (container.context === null) {
+    // 如果是首次渲染，就直接挂载
     container.context = context;
   } else {
+    // 如果是更新渲染，则将最新的上下文挂载到pendingContext属性上，等待更新
     container.pendingContext = context;
   }
 
@@ -295,11 +307,15 @@ export function updateContainer(
     }
   }
 
+  // 根据eventTime和lane生成一个update对象
   const update = createUpdate(eventTime, lane);
   // Caution: React DevTools currently depends on this property
   // being called "element".
+  // 给update添加payload属性指向{ element }，也就是vnode
+  // 也就是update需要更新的对象是这个element
   update.payload = {element};
 
+  // 给update添加callback属性指向更新完成后的回调函数
   callback = callback === undefined ? null : callback;
   if (callback !== null) {
     if (__DEV__) {
@@ -314,9 +330,12 @@ export function updateContainer(
     update.callback = callback;
   }
 
+  // 将update对象放在fiber的更新队列上
+  // 从名称上看是队列更新，实际上是对fiber中的链表进行更新，将update task对象挂载到pending属性上
   enqueueUpdate(current, update);
+  // 开始react异步渲染的核心，任务调度更新  React Scheduler
   scheduleUpdateOnFiber(current, lane, eventTime);
-
+  // 经过一系列更新之后，我们将刚开始创建的lane返回
   return lane;
 }
 
@@ -334,15 +353,16 @@ export {
   act,
 };
 
+// 获取rootFiber的第一个child的stateNode
 export function getPublicRootInstance(
-  container: OpaqueRoot,
+  container: OpaqueRoot, // fiberRoot
 ): React$Component<any, any> | PublicInstance | null {
-  const containerFiber = container.current;
+  const containerFiber = container.current; // rootFiber
   if (!containerFiber.child) {
     return null;
   }
   switch (containerFiber.child.tag) {
-    case HostComponent:
+    case HostComponent: // 原生dom节点组件???
       return getPublicInstance(containerFiber.child.stateNode);
     default:
       return containerFiber.child.stateNode;

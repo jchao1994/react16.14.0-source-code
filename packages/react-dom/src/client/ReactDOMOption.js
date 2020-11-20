@@ -82,6 +82,7 @@ export function postMountWrapper(element: Element, props: Object) {
   }
 }
 
+// 处理option标签的props
 export function getHostProps(element: Element, props: Object) {
   const hostProps = {children: undefined, ...props};
   const content = flattenChildren(props.children);

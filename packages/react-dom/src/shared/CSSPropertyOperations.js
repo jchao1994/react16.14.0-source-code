@@ -53,9 +53,10 @@ export function createDangerousStringForStyles(styles) {
  * Sets the value for multiple styles on a node.  If a value is specified as
  * '' (empty string), the corresponding style property will be unset.
  *
- * @param {DOMElement} node
- * @param {object} styles
+ * @param {DOMElement} node 根据老的current.stateNode和新的workInProgress克隆出的新instance
+ * @param {object} styles style属性对象
  */
+// dom上添加css
 export function setValueForStyles(node, styles) {
   const style = node.style;
   for (let styleName in styles) {
@@ -68,6 +69,7 @@ export function setValueForStyles(node, styles) {
         warnValidStyle(styleName, styles[styleName]);
       }
     }
+    // 转换为css可写值
     const styleValue = dangerousStyleValue(
       styleName,
       styles[styleName],
@@ -76,6 +78,7 @@ export function setValueForStyles(node, styles) {
     if (styleName === 'float') {
       styleName = 'cssFloat';
     }
+    // dom上添加css
     if (isCustomProperty) {
       style.setProperty(styleName, styleValue);
     } else {

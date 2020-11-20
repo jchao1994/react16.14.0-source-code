@@ -144,6 +144,7 @@ function popContext(fiber: Fiber): void {
   }
 }
 
+// 取出栈中的最后一个didPerformWork context作为当前的，然后清除栈中对应的
 function popTopLevelContextObject(fiber: Fiber): void {
   if (disableLegacyContext) {
     return;
@@ -153,6 +154,7 @@ function popTopLevelContextObject(fiber: Fiber): void {
   }
 }
 
+// 更新context和didPerformWork指针
 function pushTopLevelContextObject(
   fiber: Fiber,
   context: Object,
@@ -221,6 +223,7 @@ function processChildContext(
   }
 }
 
+// 更新context didPerformWork指针，返回是否支持legacyContext
 function pushContextProvider(workInProgress: Fiber): boolean {
   if (disableLegacyContext) {
     return false;
@@ -247,6 +250,7 @@ function pushContextProvider(workInProgress: Fiber): boolean {
   }
 }
 
+// didChange为false，更新didPerformWork指针指向false
 function invalidateContextProvider(
   workInProgress: Fiber,
   type: any,

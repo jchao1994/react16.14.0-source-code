@@ -114,44 +114,81 @@ if (__DEV__) {
 let debugCounter = 1;
 
 function FiberNode(
-  tag: WorkTag,
-  pendingProps: mixed,
-  key: null | string,
-  mode: TypeOfMode,
+  tag: WorkTag, // 用于标记fiber节点的类型，如ClassComponent、HostRoot、HostComponent、HostText
+  pendingProps: mixed, // 表示待处理的props数据
+  key: null | string, // 用于唯一标识一个fiber节点(特别在一些列表数据结构中，一般会要求为每个DOM节点或组件加上额外的key属性，在后续的调和阶段会派上用场)
+  mode: TypeOfMode, // 表示fiber节点的模式
 ) {
   // Instance
+  // 用于标记fiber节点的类型，如ClassComponent、HostRoot、HostComponent、HostText
   this.tag = tag;
+  // 用于唯一标识一个fiber节点
   this.key = key;
   this.elementType = null;
+  // ReactElement类型,如：Function|String|Symbol|Number|Object
   this.type = null;
+  // 对于原生dom元素而言，stateNode属性指向对应的dom节点???
+  // 对于rootFiber节点而言，stateNode属性指向对应的fiberRoot节点
+  // 对于child fiber节点而言，stateNode属性指向对应的组件ReactComponent实例
   this.stateNode = null;
 
   // Fiber
+  // 以下属性创建单链表树结构
+  // return属性始终指向父节点
+  // child属性始终指向第一个子节点
+  // sibling属性始终指向第一个兄弟节点
   this.return = null;
   this.child = null;
   this.sibling = null;
+  // index属性表示当前fiber节点的索引
   this.index = 0;
 
+  // ref用于挂载dom
   this.ref = null;
 
+  // pendingProps是在fiber尚未执行时进行设置，而memoizedProps则在fiber执行结束之后设置
+  // 这个两个属性的作用在于，当fiber判断两个属性值相同时，在执行更新函数的时候便直接复用上一次的输出值，避免不必要的计算
+  // pendingProps 代表 componentWillReceiveProps 的第一个参数,即传入进来的新props
+  // 表示待处理的props数据
   this.pendingProps = pendingProps;
+  // 当前props
+  // 表示之前已经存储的props数据
   this.memoizedProps = null;
+  // 表示更新队列
+  // 例如在常见的setState操作中
+  // 其实会先将需要更新的数据存放到这里的updateQueue队列中用于后续调度
   this.updateQueue = null;
+  // 当前state
+  // 表示之前已经存储的state数据
   this.memoizedState = null;
   this.dependencies = null;
 
+  // 表示fiber节点的模式
   this.mode = mode;
 
   // Effects
+  // 在首次渲染的时候是不存在flags
+  // 包括effectTag和subtreeTag
   this.flags = NoFlags;
+  // 在首次渲染的时候 firstEffect,lastEffect,nextEffect三个指针均为初始时均为null
+  // 这三个指针用于重新渲染，共同维护起一个抽象的effectList单向链表
   this.nextEffect = null;
 
   this.firstEffect = null;
   this.lastEffect = null;
 
+  // 表示当前更新任务的过期时间，即在该时间之后更新任务将会被完成
+  // expirationTime
   this.lanes = NoLanes;
+  // 表示当前fiber节点的子fiber节点中具有最高优先级的任务的过期时间
+  // 该属性的值会根据子fiber节点中的任务优先级进行动态调整
+  // childExpirationTime
   this.childLanes = NoLanes;
 
+  // current fiber是用于页面显示的fiber，workInProcess render完成之后将替换当前的current fiber
+  // current fiber和workInProcess这两个fiber对象都用这个属性指向另一个fiber节点
+  // 这两个fiber节点使用alternate属性相互引用，形成双缓冲
+  // alternate属性指向的fiber节点在任务调度中又称为workInProgress节点
   this.alternate = null;
 
   if (enableProfilerTimer) {
@@ -208,12 +245,13 @@ function FiberNode(
 // 5) It should be easy to port this to a C struct and keep a C implementation
 //    compatible.
 const createFiber = function(
-  tag: WorkTag,
-  pendingProps: mixed,
-  key: null | string,
-  mode: TypeOfMode,
+  tag: WorkTag, // 用于标记fiber节点的类型
+  pendingProps: mixed, // 表示待处理的props数据
+  key: null | string, // 用于唯一标识一个fiber节点(特别在一些列表数据结构中，一般会要求为每个DOM节点或组件加上额外的key属性，在后续的调和阶段会派上用场)
+  mode: TypeOfMode, // 表示fiber节点的模式
 ): Fiber {
   // $FlowFixMe: the shapes are exact here but Flow doesn't like constructors
+  // FiberNode构造函数用于创建一个FiberNode实例，即一个fiber节点
   return new FiberNode(tag, pendingProps, key, mode);
 };
 
@@ -251,22 +289,29 @@ export function resolveLazyComponentTag(Component: Function): WorkTag {
 }
 
 // This is used to create an alternate fiber to do work on.
+// 创建或更新currentFiber对应的workInProgress，继承child和sibling，但没有return
+// return一般创建之后立马加上父workInProgress引用
 export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
   let workInProgress = current.alternate;
+  // 首次渲染workInProgress为null
   if (workInProgress === null) {
     // We use a double buffering pooling technique because we know that we'll
     // only ever need at most two versions of a tree. We pool the "other" unused
     // node that we're free to reuse. This is lazily created to avoid allocating
     // extra objects for things that are never updated. It also allow us to
     // reclaim the extra memory if needed.
+    // 使用双缓冲技术，也就是currentFiber(用于显示内容)和workInProgress(用于render)
+
+    // 创建workInProgress，与currentFiber只有pendingProps不同
     workInProgress = createFiber(
       current.tag,
-      pendingProps,
+      pendingProps, // 新的props
       current.key,
       current.mode,
     );
     workInProgress.elementType = current.elementType;
     workInProgress.type = current.type;
+    // 挂载dom
     workInProgress.stateNode = current.stateNode;
 
     if (__DEV__) {
@@ -277,10 +322,11 @@ export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
       workInProgress._debugHookTypes = current._debugHookTypes;
     }
 
+    // 相互引用
     workInProgress.alternate = current;
     current.alternate = workInProgress;
   } else {
-    workInProgress.pendingProps = pendingProps;
+    workInProgress.pendingProps = pendingProps; // 新的props
     // Needed because Blocks store data on type.
     workInProgress.type = current.type;
 
@@ -289,6 +335,7 @@ export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
     workInProgress.flags = NoFlags;
 
     // The effect list is no longer valid.
+    // 对于effectList初始化给予空值
     workInProgress.nextEffect = null;
     workInProgress.firstEffect = null;
     workInProgress.lastEffect = null;
@@ -307,12 +354,13 @@ export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
   workInProgress.lanes = current.lanes;
 
   workInProgress.child = current.child;
-  workInProgress.memoizedProps = current.memoizedProps;
-  workInProgress.memoizedState = current.memoizedState;
+  workInProgress.memoizedProps = current.memoizedProps; // 已经存在的props
+  workInProgress.memoizedState = current.memoizedState; // 已经存在的state
   workInProgress.updateQueue = current.updateQueue;
 
   // Clone the dependencies object. This is mutated during the render phase, so
   // it cannot be shared with the current fiber.
+  // 不能和currentFiber共享currentDependencies，而是做了浅拷贝，因为会在render过程中发生变化
   const currentDependencies = current.dependencies;
   workInProgress.dependencies =
     currentDependencies === null
@@ -323,6 +371,7 @@ export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
         };
 
   // These will be overridden during the parent's reconciliation
+  // 在父fiber协调过程中会覆盖当前workInProgress的sibling index ref
   workInProgress.sibling = current.sibling;
   workInProgress.index = current.index;
   workInProgress.ref = current.ref;
@@ -428,14 +477,21 @@ export function resetWorkInProgress(workInProgress: Fiber, renderLanes: Lanes) {
   return workInProgress;
 }
 
+// 内部调用createFiber方法创建一个FiberNode实例
+// tag  fiberRoot节点的标记(LegacyRoot、BatchedRoot、ConcurrentRoot)
+// export const NoMode = 0b0000;          => 0
+// export const StrictMode = 0b0001;      => 1
+// export const BatchedMode = 0b0010;     => 2
+// export const ConcurrentMode = 0b0100;  => 4
+// export const ProfileMode = 0b1000;     => 8
 export function createHostRootFiber(tag: RootTag): Fiber {
   let mode;
-  if (tag === ConcurrentRoot) {
-    mode = ConcurrentMode | BlockingMode | StrictMode;
-  } else if (tag === BlockingRoot) {
-    mode = BlockingMode | StrictMode;
+  if (tag === ConcurrentRoot) { // 2
+    mode = ConcurrentMode | BlockingMode | StrictMode; // 4 | 2 | 1
+  } else if (tag === BlockingRoot) { // 1
+    mode = BlockingMode | StrictMode; // 2 | 1
   } else {
-    mode = NoMode;
+    mode = NoMode; // 0
   }
 
   if (enableProfilerTimer && isDevToolsPresent) {
@@ -445,9 +501,14 @@ export function createHostRootFiber(tag: RootTag): Fiber {
     mode |= ProfileMode;
   }
 
+  // 调用createFiber方法创建并返回一个FiberNode实例
+  // HostRoot为3，表示fiber tree的根节点
+  // 其他标记类型可以在react-reconciler/src/ReactWorkTags.js文件中找到
   return createFiber(HostRoot, null, null, mode);
 }
 
+// 这个函数的主要目的是获取fiber 的type ，它可能是classComponent也可能是HostComponent等等。
+// 至于pendingProps，这个上一个函数已经拿到了就不必计算了
 export function createFiberFromTypeAndProps(
   type: any, // React$ElementType
   key: null | string,
@@ -456,12 +517,12 @@ export function createFiberFromTypeAndProps(
   mode: TypeOfMode,
   lanes: Lanes,
 ): Fiber {
-  let fiberTag = IndeterminateComponent;
+  let fiberTag = IndeterminateComponent; // 不确定组件
   // The resolved type is set if we know what the final type will be. I.e. it's not lazy.
   let resolvedType = type;
   if (typeof type === 'function') {
     if (shouldConstruct(type)) {
-      fiberTag = ClassComponent;
+      fiberTag = ClassComponent; // 类组件
       if (__DEV__) {
         resolvedType = resolveClassForHotReloading(resolvedType);
       }
@@ -471,8 +532,10 @@ export function createFiberFromTypeAndProps(
       }
     }
   } else if (typeof type === 'string') {
-    fiberTag = HostComponent;
+    fiberTag = HostComponent; // 原生dom组件
   } else {
+    // 标记getTag，用于内部嵌套的switch中断
+    // react元素类型判断type
     getTag: switch (type) {
       case REACT_FRAGMENT_TYPE:
         return createFiberFromFragment(pendingProps.children, mode, lanes, key);
@@ -501,6 +564,7 @@ export function createFiberFromTypeAndProps(
       // eslint-disable-next-line no-fallthrough
       default: {
         if (typeof type === 'object' && type !== null) {
+          // react元素类型判断type.$$typeof
           switch (type.$$typeof) {
             case REACT_PROVIDER_TYPE:
               fiberTag = ContextProvider;
@@ -568,6 +632,7 @@ export function createFiberFromTypeAndProps(
     }
   }
 
+  // 根据fiberTag创建workInProgress
   const fiber = createFiber(fiberTag, pendingProps, key, mode);
   fiber.elementType = type;
   fiber.type = resolvedType;
@@ -580,6 +645,7 @@ export function createFiberFromTypeAndProps(
   return fiber;
 }
 
+// 创建reactElement workInProgress
 export function createFiberFromElement(
   element: ReactElement,
   mode: TypeOfMode,
@@ -607,6 +673,7 @@ export function createFiberFromElement(
   return fiber;
 }
 
+// 创建fragment fiber对象
 export function createFiberFromFragment(
   elements: ReactFragment,
   mode: TypeOfMode,
@@ -748,7 +815,7 @@ export function createFiberFromLegacyHidden(
 
 export function createFiberFromText(
   content: string,
-  mode: TypeOfMode,
+  mode: TypeOfMode, // BlockingMode，值为0b00010
   lanes: Lanes,
 ): Fiber {
   const fiber = createFiber(HostText, content, null, mode);

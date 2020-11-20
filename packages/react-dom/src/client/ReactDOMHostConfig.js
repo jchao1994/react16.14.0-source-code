@@ -150,6 +150,8 @@ const STYLE = 'style';
 let eventsEnabled: ?boolean = null;
 let selectionInformation: null | SelectionInformation = null;
 
+// 是否应该autoFocus
+// 只有button input select textarea才支持
 function shouldAutoFocusHostComponent(type: string, props: Props): boolean {
   switch (type) {
     case 'button':
@@ -219,6 +221,7 @@ export function getPublicInstance(instance: Instance): * {
 }
 
 export function prepareForCommit(containerInfo: Container): Object | null {
+  // 获取_enabled
   eventsEnabled = ReactBrowserEventEmitterIsEnabled();
   selectionInformation = getSelectionInformation();
   let activeInstance = null;
@@ -228,13 +231,16 @@ export function prepareForCommit(containerInfo: Container): Object | null {
       activeInstance = getClosestInstanceFromNode(focusedElem);
     }
   }
+  // 设置_enabled为false
   ReactBrowserEventEmitterSetEnabled(false);
   return activeInstance;
 }
 
+// internalInstanceHandle  nextEffect
 export function beforeActiveInstanceBlur(internalInstanceHandle: Object): void {
   if (enableCreateEventHandleAPI) {
     ReactBrowserEventEmitterSetEnabled(true);
+    // selectionInformation.focusedElem触发beforeblur事件
     dispatchBeforeDetachedBlur(
       (selectionInformation: any).focusedElem,
       internalInstanceHandle,
@@ -243,6 +249,7 @@ export function beforeActiveInstanceBlur(internalInstanceHandle: Object): void {
   }
 }
 
+// selectionInformation.focusedElem触发afterblur事件
 export function afterActiveInstanceBlur(): void {
   if (enableCreateEventHandleAPI) {
     ReactBrowserEventEmitterSetEnabled(true);
@@ -258,12 +265,13 @@ export function resetAfterCommit(containerInfo: Container): void {
   selectionInformation = null;
 }
 
+// 创建reactElement实例
 export function createInstance(
-  type: string,
-  props: Props,
-  rootContainerInstance: Container,
-  hostContext: HostContext,
-  internalInstanceHandle: Object,
+  type: string, // workInProgress.type
+  props: Props, // workInProgress.pendingProps
+  rootContainerInstance: Container, // 当前rootInstance容器
+  hostContext: HostContext, // 当前上下文context
+  internalInstanceHandle: Object, // workInProgress
 ): Instance {
   let parentNamespace: string;
   if (__DEV__) {
@@ -285,35 +293,46 @@ export function createInstance(
   } else {
     parentNamespace = ((hostContext: any): HostContextProd);
   }
+  // 创建新的dom
   const domElement: Instance = createElement(
     type,
     props,
     rootContainerInstance,
     parentNamespace,
   );
+  // 将internalInstanceHandle挂载到domElement的internalInstanceKey上
   precacheFiberNode(internalInstanceHandle, domElement);
+  // 将props挂载到domElement的internalPropsKey上
   updateFiberProps(domElement, props);
   return domElement;
 }
 
+// 父reactElement中添加子reactElement
 export function appendInitialChild(
-  parentInstance: Instance,
-  child: Instance | TextInstance,
+  parentInstance: Instance, // reactElement
+  child: Instance | TextInstance, // 子reactElement
 ): void {
   parentInstance.appendChild(child);
 }
 
+// 根据workInProgress.pendingProps完成对domElement的设置初始属性
+// 返回是否应该autoFocus
+// 只有button input select textarea才支持
 export function finalizeInitialChildren(
-  domElement: Instance,
-  type: string,
-  props: Props,
-  rootContainerInstance: Container,
-  hostContext: HostContext,
+  domElement: Instance, // 根据老的current.stateNode和新的workInProgress克隆出的新instance
+  type: string, // workInProgress.type
+  props: Props, // workInProgress.pendingProps
+  rootContainerInstance: Container, // 当前rootInstance容器
+  hostContext: HostContext, // 当前上下文context
 ): boolean {
+  // 根据workInProgress.pendingProps给domElement设置初始属性
   setInitialProperties(domElement, type, props, rootContainerInstance);
+  // 返回是否应该autoFocus
+  // 只有button input select textarea才支持
   return shouldAutoFocusHostComponent(type, props);
 }
 
+// diff新老props拿到需要更新的updatePayload数组
 export function prepareUpdate(
   domElement: Instance,
   type: string,
@@ -337,6 +356,7 @@ export function prepareUpdate(
       validateDOMNesting(null, string, ownAncestorInfo);
     }
   }
+  // diff新老props拿到需要更新的updatePayload数组
   return diffProperties(
     domElement,
     type,
@@ -359,17 +379,20 @@ export function shouldSetTextContent(type: string, props: Props): boolean {
   );
 }
 
+// 创建文本dom，并且workInProgress的internalInstanceKey指向该dom
 export function createTextInstance(
   text: string,
   rootContainerInstance: Container,
   hostContext: HostContext,
-  internalInstanceHandle: Object,
+  internalInstanceHandle: Object, // workInProgress
 ): TextInstance {
   if (__DEV__) {
     const hostContextDev = ((hostContext: any): HostContextDev);
     validateDOMNesting(null, text, hostContextDev.ancestorInfo);
   }
+  // 创建文本dom
   const textNode: TextInstance = createTextNode(text, rootContainerInstance);
+  // internalInstanceHandle[internalInstanceKey] = textNode
   precacheFiberNode(internalInstanceHandle, textNode);
   return textNode;
 }
@@ -391,11 +414,12 @@ export const noTimeout = -1;
 
 export const supportsMutation = true;
 
+// 触发自动聚焦autoFocus
 export function commitMount(
   domElement: Instance,
   type: string,
   newProps: Props,
-  internalInstanceHandle: Object,
+  internalInstanceHandle: Object, // finishedWork
 ): void {
   // Despite the naming that might imply otherwise, this method only
   // fires if there is an `Update` effect scheduled during mounting.
@@ -412,21 +436,26 @@ export function commitMount(
   }
 }
 
+// 提交更新，将diff的结果(也就是updatePayload)更新到domElement中
 export function commitUpdate(
-  domElement: Instance,
+  domElement: Instance, // dom
   updatePayload: Array<mixed>,
   type: string,
   oldProps: Props,
   newProps: Props,
-  internalInstanceHandle: Object,
+  internalInstanceHandle: Object, // finishedWork
 ): void {
   // Update the props handle so that we know which props are the ones with
   // with current event handlers.
+  // 标记新的props
+  // domElement.internalPropsKey = newProps
   updateFiberProps(domElement, newProps);
   // Apply the diff to the DOM node.
+  // 将diff的结果(也就是updatePayload)更新到domElement中
   updateProperties(domElement, updatePayload, type, oldProps, newProps);
 }
 
+// 重置domElement为''
 export function resetTextContent(domElement: Instance): void {
   setTextContent(domElement, '');
 }
@@ -446,6 +475,7 @@ export function appendChild(
   parentInstance.appendChild(child);
 }
 
+// 将child插入到container中
 export function appendChildToContainer(
   container: Container,
   child: Instance | TextInstance,
@@ -484,6 +514,7 @@ export function insertBefore(
   parentInstance.insertBefore(child, beforeChild);
 }
 
+// 将child插入到container中beforeChild之前
 export function insertInContainerBefore(
   container: Container,
   child: Instance | TextInstance,
@@ -502,9 +533,10 @@ function createEvent(type: DOMEventName, bubbles: boolean): Event {
   return event;
 }
 
+// target触发beforeblur事件
 function dispatchBeforeDetachedBlur(
   target: HTMLElement,
-  internalInstanceHandle: Object,
+  internalInstanceHandle: Object, // nextEffect
 ): void {
   if (enableCreateEventHandleAPI) {
     const event = createEvent('beforeblur', true);
@@ -599,6 +631,7 @@ export function clearSuspenseBoundaryFromContainer(
   retryIfBlockedOn(container);
 }
 
+// instance的display设为none，隐藏
 export function hideInstance(instance: Instance): void {
   // TODO: Does this work for all element types? What about MathML? Should we
   // pass host context to this method?
@@ -611,10 +644,12 @@ export function hideInstance(instance: Instance): void {
   }
 }
 
+// 清空textInstance的文本，即为隐藏
 export function hideTextInstance(textInstance: TextInstance): void {
   textInstance.nodeValue = '';
 }
 
+// 根据props.style.display设置instance的display
 export function unhideInstance(instance: Instance, props: Props): void {
   instance = ((instance: any): HTMLElement);
   const styleProp = props[STYLE];
@@ -627,6 +662,7 @@ export function unhideInstance(instance: Instance, props: Props): void {
   instance.style.display = dangerousStyleValue('display', display);
 }
 
+// 赋值textInstance的文本，即为显示
 export function unhideTextInstance(
   textInstance: TextInstance,
   text: string,
@@ -1080,9 +1116,10 @@ export function preparePortalMount(portalInstance: Instance): void {
   listenToAllSupportedEvents(portalInstance);
 }
 
+// scopeInstance.internalInstanceKey = internalInstanceHandle
 export function prepareScopeUpdate(
-  scopeInstance: ReactScopeInstance,
-  internalInstanceHandle: Object,
+  scopeInstance: ReactScopeInstance, // instance
+  internalInstanceHandle: Object, // finishedWork
 ): void {
   if (enableScopeAPI) {
     precacheFiberNode(internalInstanceHandle, scopeInstance);

@@ -53,18 +53,21 @@ import invariant from 'shared/invariant';
 import {
   BlockingRoot,
   ConcurrentRoot,
-  LegacyRoot,
+  LegacyRoot, // 0
 } from 'react-reconciler/src/ReactRootTags';
 
+// ReactDOMRoot和ReactDOMBlockingRoot构造函数，都有_internalRoot属性、render方法和unmount方法
 function ReactDOMRoot(container: Container, options: void | RootOptions) {
+  // ConcurrentRoot为2
   this._internalRoot = createRootImpl(container, ConcurrentRoot, options);
 }
 
 function ReactDOMBlockingRoot(
-  container: Container,
-  tag: RootTag,
-  options: void | RootOptions,
+  container: Container, // document.getElementById('root')
+  tag: RootTag, // fiberRoot节点的标记(LegacyRoot、BatchedRoot、ConcurrentRoot)
+  options: void | RootOptions, // 带有hydrate属性
 ) {
+  // fiberRoot
   this._internalRoot = createRootImpl(container, tag, options);
 }
 
@@ -95,6 +98,7 @@ ReactDOMRoot.prototype.render = ReactDOMBlockingRoot.prototype.render = function
       }
     }
   }
+  // 更新容器
   updateContainer(children, root, null, null);
 };
 
@@ -109,17 +113,19 @@ ReactDOMRoot.prototype.unmount = ReactDOMBlockingRoot.prototype.unmount = functi
   }
   const root = this._internalRoot;
   const container = root.containerInfo;
+  // 卸载，抹去当前root容器的root标签
   updateContainer(null, root, null, () => {
     unmarkContainerAsRoot(container);
   });
 };
 
 function createRootImpl(
-  container: Container,
-  tag: RootTag,
-  options: void | RootOptions,
+  container: Container, // 生成fiberRoot时对应document.getElementById('root')
+  tag: RootTag, // fiberRoot节点的标记(LegacyRoot 0、BatchedRoot 1、ConcurrentRoot 2)
+  options: void | RootOptions, // 带有hydrate属性
 ) {
   // Tag is either LegacyRoot or Concurrent Root
+  // 判断是否是hydrate模式
   const hydrate = options != null && options.hydrate === true;
   const hydrationCallbacks =
     (options != null && options.hydrationOptions) || null;
@@ -128,11 +134,18 @@ function createRootImpl(
       options.hydrationOptions != null &&
       options.hydrationOptions.mutableSources) ||
     null;
+
+    // 创建一个Container，在fiber概念中，它被称为fiberRoot。它并非在react-dom库中，而是在react-reconciler库中
+    // createContainer这个函数实际调用的函数叫createFiberRoot
   const root = createContainer(container, tag, hydrate, hydrationCallbacks);
+  // root.current指向hostRootFiber
+  // 给container附加一个内部属性  '__reactContainer$' + randomKey  用于指向fiberRoot的current属性对应的rootFiber节点hostRootFiber
   markContainerAsRoot(root.current, container);
 
+  // 正常情况下container.nodeType只有一个DOCUMENT_NODE
   const rootContainerElement =
     container.nodeType === COMMENT_NODE ? container.parentNode : container;
+  // 类型检查???
   listenToAllSupportedEvents(rootContainerElement);
 
   if (mutableSources) {
@@ -142,6 +155,7 @@ function createRootImpl(
     }
   }
 
+  // 返回fiberRoot
   return root;
 }
 
@@ -170,9 +184,10 @@ export function createBlockingRoot(
 }
 
 export function createLegacyRoot(
-  container: Container,
-  options?: RootOptions,
+  container: Container, // document.getElementById('root')
+  options?: RootOptions, // 带有hydrate属性
 ): RootType {
+  // 这里的LegacyRoot为0
   return new ReactDOMBlockingRoot(container, LegacyRoot, options);
 }
 

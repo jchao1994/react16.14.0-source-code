@@ -27,6 +27,7 @@ export function markSourceAsDirty(mutableSource: MutableSource<any>): void {
   workInProgressSources.push(mutableSource);
 }
 
+// 重置workInProgressSources
 export function resetWorkInProgressVersions(): void {
   for (let i = 0; i < workInProgressSources.length; i++) {
     const mutableSource = workInProgressSources[i];

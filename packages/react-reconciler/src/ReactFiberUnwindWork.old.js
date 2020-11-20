@@ -44,6 +44,8 @@ import {transferActualDuration} from './ReactProfilerTimer.old';
 
 import invariant from 'shared/invariant';
 
+// workInProgress  completedWork
+// renderLanes  subtreeRenderLanes
 function unwindWork(workInProgress: Fiber, renderLanes: Lanes) {
   switch (workInProgress.tag) {
     case ClassComponent: {

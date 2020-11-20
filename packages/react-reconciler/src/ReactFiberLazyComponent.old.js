@@ -7,6 +7,7 @@
  * @flow
  */
 
+// 将defaultProps加入baseProps
 export function resolveDefaultProps(Component: any, baseProps: Object): Object {
   if (Component && Component.defaultProps) {
     // Resolve default props. Taken from ReactElement

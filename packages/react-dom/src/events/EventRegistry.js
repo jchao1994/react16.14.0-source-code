@@ -33,16 +33,16 @@ export const possibleRegistrationNames = __DEV__ ? {} : (null: any);
 // Trust the developer to only use possibleRegistrationNames in __DEV__
 
 export function registerTwoPhaseEvent(
-  registrationName: string,
-  dependencies: Array<DOMEventName>,
+  registrationName: string, // onAbort
+  dependencies: Array<DOMEventName>, // [abort]
 ): void {
   registerDirectEvent(registrationName, dependencies);
   registerDirectEvent(registrationName + 'Capture', dependencies);
 }
 
 export function registerDirectEvent(
-  registrationName: string,
-  dependencies: Array<DOMEventName>,
+  registrationName: string, // onAbort/onAbortCapture
+  dependencies: Array<DOMEventName>, // [abort]
 ) {
   if (__DEV__) {
     if (registrationNameDependencies[registrationName]) {
@@ -54,6 +54,9 @@ export function registerDirectEvent(
     }
   }
 
+  // registrationNameDependencies['onAbort'] = [abort]
+  // registrationNameDependencies['onAbortCapture'] = [abort]
+  // 事件名对应的依赖事件
   registrationNameDependencies[registrationName] = dependencies;
 
   if (__DEV__) {
@@ -65,6 +68,8 @@ export function registerDirectEvent(
     }
   }
 
+  // set(abort)
+  // 所有的依赖事件，去重
   for (let i = 0; i < dependencies.length; i++) {
     allNativeEvents.add(dependencies[i]);
   }

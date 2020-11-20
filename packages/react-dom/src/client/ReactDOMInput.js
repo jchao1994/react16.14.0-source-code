@@ -58,6 +58,7 @@ function isControlled(props) {
  * See http://www.w3.org/TR/2012/WD-html5-20121025/the-input-element.html
  */
 
+ // 处理input标签的props
 export function getHostProps(element: Element, props: Object) {
   const node = ((element: any): InputWithWrapperState);
   const checked = props.checked;
@@ -133,6 +134,7 @@ export function updateChecked(element: Element, props: Object) {
   }
 }
 
+// 更新input标签的value defaultValue checked defaultChecked
 export function updateWrapper(element: Element, props: Object) {
   const node = ((element: any): InputWithWrapperState);
   if (__DEV__) {
@@ -231,10 +233,12 @@ export function updateWrapper(element: Element, props: Object) {
   }
 }
 
+// 更新input相关的一些属性
+// value defaultValue checked
 export function postMountWrapper(
-  element: Element,
-  props: Object,
-  isHydrating: boolean,
+  element: Element, // domElement
+  props: Object, // workInProgress.pendingProps
+  isHydrating: boolean, // SSR
 ) {
   const node = ((element: any): InputWithWrapperState);
 
@@ -254,6 +258,7 @@ export function postMountWrapper(
 
     // Do not assign value if it is already set. This prevents user text input
     // from being lost during SSR hydration.
+    // 更新node.value
     if (!isHydrating) {
       if (disableInputAttributeSyncing) {
         const value = getToStringValue(props.value);
@@ -286,6 +291,7 @@ export function postMountWrapper(
       }
     }
 
+    // 更新node.defaultValue
     if (disableInputAttributeSyncing) {
       // When not syncing the value attribute, assign the value attribute
       // directly from the defaultValue React property (when present)
@@ -306,6 +312,7 @@ export function postMountWrapper(
   // will sometimes influence the value of checked (even after detachment).
   // Reference: https://bugs.chromium.org/p/chromium/issues/detail?id=608416
   // We need to temporarily unset name to avoid disrupting radio button groups.
+  // 暂时将node.name设为''
   const name = node.name;
   if (name !== '') {
     node.name = '';
@@ -317,12 +324,14 @@ export function postMountWrapper(
     // to do this when hydrating so that existing user input isn't
     // modified
     if (!isHydrating) {
+      // 更新element的checked属性
       updateChecked(element, props);
     }
 
     // Only assign the checked attribute if it is defined. This saves
     // a DOM write when controlling the checked attribute isn't needed
     // (text inputs, submit/reset)
+    // 更新node.defaultChecked
     if (props.hasOwnProperty('defaultChecked')) {
       node.defaultChecked = !node.defaultChecked;
       node.defaultChecked = !!props.defaultChecked;
@@ -338,6 +347,7 @@ export function postMountWrapper(
     node.defaultChecked = !!node._wrapperState.initialChecked;
   }
 
+  // 将node.name设置为原来的值
   if (name !== '') {
     node.name = name;
   }

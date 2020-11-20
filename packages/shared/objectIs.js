@@ -17,6 +17,7 @@ function is(x: any, y: any) {
   );
 }
 
+// x和y是否为同一个值
 const objectIs: (x: any, y: any) => boolean =
   typeof Object.is === 'function' ? Object.is : is;
 

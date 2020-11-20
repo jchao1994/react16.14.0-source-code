@@ -108,11 +108,17 @@ function handleTimeout(currentTime) {
 
   if (!isHostCallbackScheduled) {
     if (peek(taskQueue) !== null) {
+      // taskQueueb不为空
       isHostCallbackScheduled = true;
+      // 设置scheduledCallback为flushWork
       requestHostCallback(flushWork);
     } else {
+      // taskQueueb为空
+
+      // 取timerQueue的第一个
       const firstTimer = peek(timerQueue);
       if (firstTimer !== null) {
+        // 设置scheduledTimeout和timeoutTime
         requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
       }
     }
@@ -214,25 +220,26 @@ function workLoop(hasTimeRemaining, initialTime) {
   }
 }
 
+// 设置最新的优先级，然后执行回调
 function unstable_runWithPriority(priorityLevel, eventHandler) {
   switch (priorityLevel) {
-    case ImmediatePriority:
-    case UserBlockingPriority:
-    case NormalPriority:
-    case LowPriority:
-    case IdlePriority:
+    case ImmediatePriority: // 1
+    case UserBlockingPriority: // 2
+    case NormalPriority: // 3
+    case LowPriority: // 4
+    case IdlePriority: // 5
       break;
     default:
       priorityLevel = NormalPriority;
   }
 
-  var previousPriorityLevel = currentPriorityLevel;
-  currentPriorityLevel = priorityLevel;
+  var previousPriorityLevel = currentPriorityLevel; // 当前优先级
+  currentPriorityLevel = priorityLevel; // 最新优先级
 
   try {
     return eventHandler();
   } finally {
-    currentPriorityLevel = previousPriorityLevel;
+    currentPriorityLevel = previousPriorityLevel; // 返回之前的优先级
   }
 }
 
@@ -276,9 +283,12 @@ function unstable_wrapCallback(callback) {
   };
 }
 
+// 返回newTask
 function unstable_scheduleCallback(priorityLevel, callback, options) {
+  // 返回currentTime
   var currentTime = getCurrentTime();
 
+  // startTime = currentTime + delay
   var startTime;
   if (typeof options === 'object' && options !== null) {
     var delay = options.delay;
@@ -291,6 +301,7 @@ function unstable_scheduleCallback(priorityLevel, callback, options) {
     startTime = currentTime;
   }
 
+  // 根据优先级生成timeout 优先级最高，timeout越小
   var timeout;
   switch (priorityLevel) {
     case ImmediatePriority:
@@ -311,8 +322,10 @@ function unstable_scheduleCallback(priorityLevel, callback, options) {
       break;
   }
 
+  // 过期时间为startTime + timeout
   var expirationTime = startTime + timeout;
 
+  // 生成新的newTask对象
   var newTask = {
     id: taskIdCounter++,
     callback,
@@ -325,22 +338,31 @@ function unstable_scheduleCallback(priorityLevel, callback, options) {
     newTask.isQueued = false;
   }
 
+  // 根据是否有delay分别处理
   if (startTime > currentTime) {
     // This is a delayed task.
+    // 说明有delay
+    // sortIndex设为startTime
     newTask.sortIndex = startTime;
+    // 将newTask推入timerQueue，并根据sortIndex和id对timerQueue做增序排序
+    // 也就是根据startTime对timerQueue进行排序
     push(timerQueue, newTask);
     if (peek(taskQueue) === null && newTask === peek(timerQueue)) {
       // All tasks are delayed, and this is the task with the earliest delay.
       if (isHostTimeoutScheduled) {
         // Cancel an existing timeout.
+        // 重置scheduledTimeout和timeoutTime
         cancelHostTimeout();
       } else {
         isHostTimeoutScheduled = true;
       }
       // Schedule a timeout.
+      // 设置scheduledTimeout和timeoutTime
       requestHostTimeout(handleTimeout, startTime - currentTime);
     }
   } else {
+    // 没有delay
+    // sortIndex设为expirationTime  startTime + timeout
     newTask.sortIndex = expirationTime;
     push(taskQueue, newTask);
     if (enableProfiling) {
@@ -351,6 +373,7 @@ function unstable_scheduleCallback(priorityLevel, callback, options) {
     // wait until the next time we yield.
     if (!isHostCallbackScheduled && !isPerformingWork) {
       isHostCallbackScheduled = true;
+      // 设置scheduledCallback为callback
       requestHostCallback(flushWork);
     }
   }

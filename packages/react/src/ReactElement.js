@@ -143,9 +143,13 @@ function warnIfStringRefCannotBeAutoConverted(config) {
  * indicating filename, line number, and/or other information.
  * @internal
  */
+// 生成reactElement对象，也就是vnode
+// ReactElement方法是一个工厂函数用于创建一个React元素，它直接返回对象，所以要注意不要使用new关键字 
 const ReactElement = function(type, key, ref, self, source, owner, props) {
   const element = {
     // This tag allows us to uniquely identify this as a React Element
+    // react element的唯一标识
+    // 标记当前创建的ReactElement对象的ReactElement-like（类React元素）类型
     $$typeof: REACT_ELEMENT_TYPE,
 
     // Built-in properties that belong on the element
@@ -155,6 +159,7 @@ const ReactElement = function(type, key, ref, self, source, owner, props) {
     props: props,
 
     // Record the component responsible for creating this element.
+    // element对应的组件
     _owner: owner,
   };
 
@@ -205,6 +210,7 @@ const ReactElement = function(type, key, ref, self, source, owner, props) {
  * @param {object} props
  * @param {string} key
  */
+// jsx本质上就是React.createElement
 export function jsx(type, config, maybeKey) {
   let propName;
 
@@ -345,6 +351,7 @@ export function jsxDEV(type, config, maybeKey, source, self) {
  * Create and return a new ReactElement of the given type.
  * See https://reactjs.org/docs/react-api.html#createelement
  */
+// jsx语法糖的本质  jsx => vnode
 export function createElement(type, config, children) {
   let propName;
 
@@ -356,7 +363,9 @@ export function createElement(type, config, children) {
   let self = null;
   let source = null;
 
+  // 处理config，提取ref key self source props
   if (config != null) {
+    // 提取ref
     if (hasValidRef(config)) {
       ref = config.ref;
 
@@ -364,6 +373,7 @@ export function createElement(type, config, children) {
         warnIfStringRefCannotBeAutoConverted(config);
       }
     }
+    // 提取key
     if (hasValidKey(config)) {
       key = '' + config.key;
     }
@@ -371,10 +381,11 @@ export function createElement(type, config, children) {
     self = config.__self === undefined ? null : config.__self;
     source = config.__source === undefined ? null : config.__source;
     // Remaining properties are added to a new props object
+    // 提取非key ref __self __source的属性到props中
     for (propName in config) {
       if (
-        hasOwnProperty.call(config, propName) &&
-        !RESERVED_PROPS.hasOwnProperty(propName)
+        hasOwnProperty.call(config, propName) && // 自有属性
+        !RESERVED_PROPS.hasOwnProperty(propName) // 非key ref __self __source
       ) {
         props[propName] = config[propName];
       }
@@ -383,6 +394,7 @@ export function createElement(type, config, children) {
 
   // Children can be more than one argument, and those are transferred onto
   // the newly allocated props object.
+  // 提取children，从第三个参数开始都视为children
   const childrenLength = arguments.length - 2;
   if (childrenLength === 1) {
     props.children = children;
@@ -400,6 +412,9 @@ export function createElement(type, config, children) {
   }
 
   // Resolve default props
+  // 处理defaultProps（默认的props，如果props中有对应的值，不做替换），添加到整个props中
+  // 在这里React会检查defaultProps，这个是React15.5之前class Component中存在的static defaultProps对象
+  // 但是目前PropTypes库所取代，但是React的源码中依然保留了这段源码用以对旧项目的支持
   if (type && type.defaultProps) {
     const defaultProps = type.defaultProps;
     for (propName in defaultProps) {
@@ -428,7 +443,7 @@ export function createElement(type, config, children) {
     ref,
     self,
     source,
-    ReactCurrentOwner.current,
+    ReactCurrentOwner.current, // ReactCurrentOwner是一个普通对象，它内部只有一个指针属性current，它表示当前所创建的这个ReactElement所属的Fiber对象
     props,
   );
 }
@@ -466,6 +481,7 @@ export function cloneAndReplaceKey(oldElement, newKey) {
  * Clone and return a new ReactElement using element as the starting point.
  * See https://reactjs.org/docs/react-api.html#cloneelement
  */
+// 克隆vnode
 export function cloneElement(element, config, children) {
   invariant(
     !(element === null || element === undefined),
@@ -491,6 +507,7 @@ export function cloneElement(element, config, children) {
   // Owner will be preserved, unless ref is overridden
   let owner = element._owner;
 
+  // 覆盖ref owner key props
   if (config != null) {
     if (hasValidRef(config)) {
       // Silently steal the ref from the parent.
@@ -523,6 +540,7 @@ export function cloneElement(element, config, children) {
 
   // Children can be more than one argument, and those are transferred onto
   // the newly allocated props object.
+  // 覆盖props.children
   const childrenLength = arguments.length - 2;
   if (childrenLength === 1) {
     props.children = children;

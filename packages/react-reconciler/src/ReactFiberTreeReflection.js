@@ -342,12 +342,13 @@ export function isFiberSuspenseAndTimedOut(fiber: Fiber): boolean {
   );
 }
 
+// parentFiber是否是childFiber或其父或其祖先
 export function doesFiberContain(
   parentFiber: Fiber,
   childFiber: Fiber,
 ): boolean {
   let node = childFiber;
-  const parentFiberAlternate = parentFiber.alternate;
+  const parentFiberAlternate = parentFiber.alternate; // currentFiber
   while (node !== null) {
     if (node === parentFiber || node === parentFiberAlternate) {
       return true;

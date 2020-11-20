@@ -133,7 +133,9 @@ if (__DEV__) {
 
 const PossiblyWeakSet = typeof WeakSet === 'function' ? WeakSet : Set;
 
-const callComponentWillUnmountWithTimer = function(current, instance) {
+// 更新props和state
+// 调用componentWillUnmount方法，记录layout effect持续时间
+const callComponentWillUnmountWithTimer = function (current, instance) {
   instance.props = current.memoizedProps;
   instance.state = current.memoizedState;
   if (
@@ -143,16 +145,20 @@ const callComponentWillUnmountWithTimer = function(current, instance) {
   ) {
     try {
       startLayoutEffectTimer();
+      // 执行instance的componentWillUnmount方法
       instance.componentWillUnmount();
     } finally {
       recordLayoutEffectDuration(current);
     }
   } else {
+    // 执行instance的componentWillUnmount方法
     instance.componentWillUnmount();
   }
 };
 
 // Capture errors so they don't interrupt unmounting.
+// 更新props和state
+// 调用componentWillUnmount方法，记录layout effect持续时间
 function safelyCallComponentWillUnmount(current: Fiber, instance: any) {
   if (__DEV__) {
     invokeGuardedCallback(
@@ -175,6 +181,8 @@ function safelyCallComponentWillUnmount(current: Fiber, instance: any) {
   }
 }
 
+// 重置ref.current为null或给ref回调传入null重置
+// 记录layout effect持续时间
 function safelyDetachRef(current: Fiber) {
   const ref = current.ref;
   if (ref !== null) {
@@ -222,6 +230,7 @@ function safelyDetachRef(current: Fiber) {
   }
 }
 
+// 执行destroy方法
 function safelyCallDestroy(current: Fiber, destroy: () => void) {
   if (__DEV__) {
     invokeGuardedCallback(null, destroy, null);
@@ -238,9 +247,10 @@ function safelyCallDestroy(current: Fiber, destroy: () => void) {
   }
 }
 
+// 提交before mutation生命周期
 function commitBeforeMutationLifeCycles(
-  current: Fiber | null,
-  finishedWork: Fiber,
+  current: Fiber | null, // nextEffect对应的currentFiber
+  finishedWork: Fiber, // nextEffect
 ): void {
   switch (finishedWork.tag) {
     case FunctionComponent:
@@ -330,15 +340,19 @@ function commitBeforeMutationLifeCycles(
   );
 }
 
+// tag  HookLayout | HookHasEffect
+// 将finishedWork.updateQueue.lastEffect之后的effect都执行destroy
 function commitHookEffectListUnmount(tag: number, finishedWork: Fiber) {
   const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue: any);
   const lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
   if (lastEffect !== null) {
     const firstEffect = lastEffect.next;
     let effect = firstEffect;
+    // 将lastEffect之后的effect都执行destroy
     do {
       if ((effect.tag & tag) === tag) {
         // Unmount
+        // 执行effect.destroy方法，并将其清空
         const destroy = effect.destroy;
         effect.destroy = undefined;
         if (destroy !== undefined) {
@@ -350,6 +364,7 @@ function commitHookEffectListUnmount(tag: number, finishedWork: Fiber) {
   }
 }
 
+// 遍历updateQueue，effect.destroy赋值为effect.create()的执行结果
 function commitHookEffectListMount(tag: number, finishedWork: Fiber) {
   const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue: any);
   const lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
@@ -475,10 +490,14 @@ export function commitPassiveEffectDurations(
   }
 }
 
+// 提交生命周期
+// ClassComponent  触发componentDidMount或componentDidUpdate，清空updateQueue以其所有effect的callback
+// HostRoot  处理子child，清空updateQueue以其所有effect的callback
+// HostComponent  触发自动聚焦autoFocus
 function commitLifeCycles(
   finishedRoot: FiberRoot,
-  current: Fiber | null,
-  finishedWork: Fiber,
+  current: Fiber | null, // nextEffect对应的currentFiber
+  finishedWork: Fiber, // nextEffect
   committedLanes: Lanes,
 ): void {
   switch (finishedWork.tag) {
@@ -497,11 +516,13 @@ function commitLifeCycles(
       ) {
         try {
           startLayoutEffectTimer();
+          // 遍历updateQueue，effect.destroy赋值为effect.create()的执行结果
           commitHookEffectListMount(HookLayout | HookHasEffect, finishedWork);
         } finally {
           recordLayoutEffectDuration(finishedWork);
         }
       } else {
+        // 遍历updateQueue，effect.destroy赋值为effect.create()的执行结果
         commitHookEffectListMount(HookLayout | HookHasEffect, finishedWork);
       }
 
@@ -509,12 +530,22 @@ function commitLifeCycles(
       return;
     }
     case ClassComponent: {
+      // 类组件
+      // 触发componentDidMount或componentDidUpdate
+      // 清空updateQueue以其所有effect的callback
+
       const instance = finishedWork.stateNode;
+      // 处理update副作用，在第二阶段不是都处理过且移除了吗???
+      // 触发用户传入的componentDidMount或componentDidUpdate生命周期，记录layout effect持续时间
       if (finishedWork.flags & Update) {
         if (current === null) {
+          // 没有currentFiber，说明是首次渲染，触发用户传入的componentDidMount生命周期
+
           // We could update instance props and state here,
           // but instead we rely on them being set during last render.
           // TODO: revisit this when we implement resuming.
+          // 这里更新instance的props和state，这里依赖上一次render的结果
+
           if (__DEV__) {
             if (
               finishedWork.type === finishedWork.elementType &&
@@ -542,29 +573,41 @@ function commitLifeCycles(
               }
             }
           }
+          // 触发用户传入的componentDidMount生命周期，记录layout effect持续时间
           if (
             enableProfilerTimer &&
             enableProfilerCommitHooks &&
             finishedWork.mode & ProfileMode
           ) {
             try {
+              // 记录layout effect开始时间
               startLayoutEffectTimer();
+              // 触发用户传入的componentDidMount生命周期
               instance.componentDidMount();
             } finally {
+              // 记录layout effect持续时间
               recordLayoutEffectDuration(finishedWork);
             }
           } else {
+            // 触发用户传入的componentDidMount生命周期
             instance.componentDidMount();
-          }
+          }iber
         } else {
+          // 有currentFiber，说明是更新渲染，触发用户传入的componentDidUpdate生命周期
+
+          // 获取老props
           const prevProps =
             finishedWork.elementType === finishedWork.type
               ? current.memoizedProps
+              // 将defaultProps加入老props
               : resolveDefaultProps(finishedWork.type, current.memoizedProps);
+          // 获取老state
           const prevState = current.memoizedState;
           // We could update instance props and state here,
           // but instead we rely on them being set during last render.
           // TODO: revisit this when we implement resuming.
+          // 这里更新instance的props和state，这里依赖上一次render的结果
+
           if (__DEV__) {
             if (
               finishedWork.type === finishedWork.elementType &&
@@ -592,22 +635,27 @@ function commitLifeCycles(
               }
             }
           }
+          // 触发用户传入的componentDidUpdate生命周期，记录layout effect持续时间
           if (
             enableProfilerTimer &&
             enableProfilerCommitHooks &&
             finishedWork.mode & ProfileMode
           ) {
             try {
+              // 记录layout effect开始时间
               startLayoutEffectTimer();
+              // 用户传入的componentDidUpdate生命周期
               instance.componentDidUpdate(
                 prevProps,
                 prevState,
                 instance.__reactInternalSnapshotBeforeUpdate,
               );
             } finally {
+              // 记录layout effect持续时间
               recordLayoutEffectDuration(finishedWork);
             }
           } else {
+            // 触发用户传入的componentDidUpdate生命周期
             instance.componentDidUpdate(
               prevProps,
               prevState,
@@ -619,6 +667,8 @@ function commitLifeCycles(
 
       // TODO: I think this is now always non-null by the time it reaches the
       // commit phase. Consider removing the type check.
+      // 这里总是非空的，可以考虑移除类型检查
+
       const updateQueue: UpdateQueue<
         *,
       > | null = (finishedWork.updateQueue: any);
@@ -653,11 +703,19 @@ function commitLifeCycles(
         // We could update instance props and state here,
         // but instead we rely on them being set during last render.
         // TODO: revisit this when we implement resuming.
+        // 这里更新instance的props和state，这里依赖上一次render的结果
+
+        // 提交updateQueue
+        // 遍历updateQueue，执行每一个effect的callback(effect.stateNode)
+        // 清空所有effect的callback和updateQueue
         commitUpdateQueue(finishedWork, updateQueue, instance);
       }
       return;
     }
     case HostRoot: {
+      // 根root，处理其子child
+      // 清空updateQueue以其所有effect的callback
+
       // TODO: I think this is now always non-null by the time it reaches the
       // commit phase. Consider removing the type check.
       const updateQueue: UpdateQueue<
@@ -666,6 +724,7 @@ function commitLifeCycles(
       if (updateQueue !== null) {
         let instance = null;
         if (finishedWork.child !== null) {
+          // 拿到finishedWork.child对应的dom instance
           switch (finishedWork.child.tag) {
             case HostComponent:
               instance = getPublicInstance(finishedWork.child.stateNode);
@@ -675,20 +734,27 @@ function commitLifeCycles(
               break;
           }
         }
+        // 提交updateQueue
+        // 遍历updateQueue，执行每一个effect的callback(effect.stateNode)
+        // 清空所有effect的callback和updateQueue
         commitUpdateQueue(finishedWork, updateQueue, instance);
       }
       return;
     }
     case HostComponent: {
+      // 原生dom组件，触发自动聚焦autoFocus
       const instance: Instance = finishedWork.stateNode;
 
       // Renderers may schedule work to be done after host components are mounted
       // (eg DOM renderer may schedule auto-focus for inputs and form controls).
       // These effects should only be committed when components are first mounted,
       // aka when there is no current/alternate.
+      
+      // mounted之后需要调度一些工作，比如auto-focus，此时没有current/alternate
       if (current === null && finishedWork.flags & Update) {
         const type = finishedWork.type;
         const props = finishedWork.memoizedProps;
+        // 触发自动聚焦autoFocus
         commitMount(instance, type, props, finishedWork);
       }
 
@@ -696,6 +762,7 @@ function commitLifeCycles(
     }
     case HostText: {
       // We have no life-cycles associated with text.
+      // 文本组件，这里没有生命周期
       return;
     }
     case HostPortal: {
@@ -791,24 +858,30 @@ function commitLifeCycles(
   );
 }
 
+// 递归finishedWork及其所有children，进行显示或隐藏操作(修改display)
 function hideOrUnhideAllChildren(finishedWork, isHidden) {
   if (supportsMutation) {
     // We only have the top Fiber that was inserted but we need to recurse down its
     // children to find all the terminal nodes.
     let node: Fiber = finishedWork;
+    // 递归finishedWork的所有children，进行显示或隐藏操作(修改display)
     while (true) {
       if (node.tag === HostComponent) {
         const instance = node.stateNode;
         if (isHidden) {
+          // instance的display设为none，隐藏
           hideInstance(instance);
         } else {
+          // 根据node.memoizedProps.style.display设置instance的display，显示
           unhideInstance(node.stateNode, node.memoizedProps);
         }
       } else if (node.tag === HostText) {
         const instance = node.stateNode;
         if (isHidden) {
+          // 清空textInstance的文本，即为隐藏
           hideTextInstance(instance);
         } else {
+          // 赋值textInstance的文本，即为显示
           unhideTextInstance(instance, node.memoizedProps);
         }
       } else if (
@@ -820,13 +893,20 @@ function hideOrUnhideAllChildren(finishedWork, isHidden) {
         // Found a nested Offscreen component that is hidden. Don't search
         // any deeper. This tree should remain hidden.
       } else if (node.child !== null) {
+        // 以上情况，不需要对child做处理，因为父dom的display可以控制child的显示与隐藏
+        // 非以上情况，取node.child重复上述操作
         node.child.return = node;
         node = node.child;
         continue;
       }
+      // 这里的情况是node.child === null
+
+      // finishedWork.child === null，直接return
       if (node === finishedWork) {
         return;
       }
+      // node.child === null 且 node不是finishedWork
+      // 遍历其他sibling和return.sibling
       while (node.sibling === null) {
         if (node.return === null || node.return === finishedWork) {
           return;
@@ -839,11 +919,14 @@ function hideOrUnhideAllChildren(finishedWork, isHidden) {
   }
 }
 
+// finishedWork  nextEffect
+// ref.current指向为最新dom instance，或是给ref回调传入最新dom instance
 function commitAttachRef(finishedWork: Fiber) {
   const ref = finishedWork.ref;
   if (ref !== null) {
     const instance = finishedWork.stateNode;
     let instanceToUse;
+    // 根据tag获取可用的dom instance
     switch (finishedWork.tag) {
       case HostComponent:
         instanceToUse = getPublicInstance(instance);
@@ -856,18 +939,24 @@ function commitAttachRef(finishedWork: Fiber) {
       instanceToUse = instance;
     }
     if (typeof ref === 'function') {
+      // ref回调函数
+      // ref = { el => this.xxx = el }
       if (
         enableProfilerTimer &&
         enableProfilerCommitHooks &&
         finishedWork.mode & ProfileMode
       ) {
         try {
+          // 记录layout effect开始时间
           startLayoutEffectTimer();
+          // 给ref回调传入instanceToUse
           ref(instanceToUse);
         } finally {
+          // 记录layout effect持续时间并添加到父fiber和祖先fiber的stateNode.effectDuration上
           recordLayoutEffectDuration(finishedWork);
         }
       } else {
+        // 给ref回调传入instanceToUse
         ref(instanceToUse);
       }
     } else {
@@ -881,30 +970,40 @@ function commitAttachRef(finishedWork: Fiber) {
         }
       }
 
+      // 设置ref.current为最新instanceToUse
       ref.current = instanceToUse;
     }
   }
 }
 
+// current  nextEffect对应的currentFiber
+// 重置ref.current指向为null，或是给ref回调传入null重置
 function commitDetachRef(current: Fiber) {
   const currentRef = current.ref;
   if (currentRef !== null) {
     if (typeof currentRef === 'function') {
+      // ref是回调函数
+      // ref = { el => this.xxx = el }
       if (
         enableProfilerTimer &&
         enableProfilerCommitHooks &&
         current.mode & ProfileMode
       ) {
         try {
+          // 记录layout effect开始时间
           startLayoutEffectTimer();
+          // 重置为null
           currentRef(null);
         } finally {
+          // 记录layout effect持续时间并添加到父fiber和祖先fiber的stateNode.effectDuration上
           recordLayoutEffectDuration(current);
         }
       } else {
+        // 重置为null
         currentRef(null);
       }
     } else {
+      // 重置为null
       currentRef.current = null;
     }
   }
@@ -913,11 +1012,19 @@ function commitDetachRef(current: Fiber) {
 // User-originating errors (lifecycles and refs) should not interrupt
 // deletion, so don't let them throw. Host-originating errors should
 // interrupt deletion, so it's okay
+// 用户发起的errors不应该删除，而host发起的errors应该删除
+
+// 递归nextEffect及其所有children执行这个方法，提交卸载
+// Block 对需要删除的effect执行destroy方法
+// ClassComponent 重置ref，调用用户传入的componentWillUnmount方法
+// HostComponent 重置ref
+// portal组件 重置container
 function commitUnmount(
-  finishedRoot: FiberRoot,
-  current: Fiber,
+  finishedRoot: FiberRoot, // fiberRoot
+  current: Fiber, // nextEffect及其所有children
   renderPriorityLevel: ReactPriorityLevel,
 ): void {
+  // ???
   onCommitUnmount(current);
 
   switch (current.tag) {
@@ -926,6 +1033,7 @@ function commitUnmount(
     case MemoComponent:
     case SimpleMemoComponent:
     case Block: {
+      // 对current.updateQueue.lastEffect之后的所有effect执行destroy方法，记录layout effect持续时间
       const updateQueue: FunctionComponentUpdateQueue | null = (current.updateQueue: any);
       if (updateQueue !== null) {
         const lastEffect = updateQueue.lastEffect;
@@ -933,6 +1041,7 @@ function commitUnmount(
           const firstEffect = lastEffect.next;
 
           let effect = firstEffect;
+          // 对current.updateQueue.lastEffect之后的所有effect执行destroy方法，记录layout effect持续时间
           do {
             const {destroy, tag} = effect;
             if (destroy !== undefined) {
@@ -945,6 +1054,7 @@ function commitUnmount(
                   current.mode & ProfileMode
                 ) {
                   startLayoutEffectTimer();
+                  // 执行destroy方法
                   safelyCallDestroy(current, destroy);
                   recordLayoutEffectDuration(current);
                 } else {
@@ -959,14 +1069,20 @@ function commitUnmount(
       return;
     }
     case ClassComponent: {
+      // 重置ref.current为null或给ref回调传入null重置
+      // 记录layout effect持续时间
       safelyDetachRef(current);
       const instance = current.stateNode;
+      // 更新props和state
+      // 调用componentWillUnmount方法，记录layout effect持续时间
       if (typeof instance.componentWillUnmount === 'function') {
         safelyCallComponentWillUnmount(current, instance);
       }
       return;
     }
     case HostComponent: {
+      // 重置ref.current为null或给ref回调传入null重置
+      // 记录layout effect持续时间
       safelyDetachRef(current);
       return;
     }
@@ -975,8 +1091,10 @@ function commitUnmount(
       // We are also not using this parent because
       // the portal will get pushed immediately.
       if (supportsMutation) {
+        // portal组件会递归调用unmountHostComponents
         unmountHostComponents(finishedRoot, current, renderPriorityLevel);
       } else if (supportsPersistence) {
+        // 将portal组件的容器替换为空
         emptyPortalContainer(current);
       }
       return;
@@ -1005,6 +1123,7 @@ function commitUnmount(
     }
     case ScopeComponent: {
       if (enableScopeAPI) {
+        // 重置ref
         safelyDetachRef(current);
       }
       return;
@@ -1012,9 +1131,14 @@ function commitUnmount(
   }
 }
 
+// 递归node及其所有children，执行commitUnmount方法，提交卸载
+// Block 对需要删除的effect执行destroy方法
+// ClassComponent 重置ref，调用用户传入的componentWillUnmount方法
+// HostComponent 重置ref
+// portal组件 重置container
 function commitNestedUnmounts(
   finishedRoot: FiberRoot,
-  root: Fiber,
+  root: Fiber, // nextEffect
   renderPriorityLevel: ReactPriorityLevel,
 ): void {
   // While we're inside a removed host node we don't want to call
@@ -1023,10 +1147,17 @@ function commitNestedUnmounts(
   // composites before this host node is removed from the tree. Therefore
   // we do an inner loop while we're still inside the host node.
   let node: Fiber = root;
+  // 递归node及其所有children，执行commitUnmount方法，提交卸载
+  // Block 对需要删除的effect执行destroy方法
+  // ClassComponent 重置ref，调用用户传入的componentWillUnmount方法
+  // HostComponent 重置ref
+  // portal组件 重置container
   while (true) {
     commitUnmount(finishedRoot, node, renderPriorityLevel);
     // Visit children because they may contain more composite or host nodes.
     // Skip portals because commitUnmount() currently visits them recursively.
+    // 递归子children
+    // 跳过portal组件
     if (
       node.child !== null &&
       // If we use mutation we drill down into portals using commitUnmount above.
@@ -1040,6 +1171,7 @@ function commitNestedUnmounts(
     if (node === root) {
       return;
     }
+    // 遍历sibling
     while (node.sibling === null) {
       if (node.return === null || node.return === root) {
         return;
@@ -1051,6 +1183,8 @@ function commitNestedUnmounts(
   }
 }
 
+// fiber  nextEffect/nextEffect对应的currentFiber
+// 重置fiber
 function detachFiberMutation(fiber: Fiber) {
   // Cut off the return pointers to disconnect it from the tree. Ideally, we
   // should clear the child pointer of the parent alternate to let this
@@ -1080,6 +1214,7 @@ function detachFiberMutation(fiber: Fiber) {
   }
 }
 
+// 将portal组件的容器替换为空
 function emptyPortalContainer(current: Fiber) {
   if (!supportsPersistence) {
     return;
@@ -1095,6 +1230,9 @@ function emptyPortalContainer(current: Fiber) {
   replaceContainerChildren(containerInfo, emptyChildSet);
 }
 
+// 提交container
+// 除了portal组件外，都使用原container
+// portal组件将自己设置的container替换原container
 function commitContainer(finishedWork: Fiber) {
   if (!supportsPersistence) {
     return;
@@ -1109,12 +1247,15 @@ function commitContainer(finishedWork: Fiber) {
     }
     case HostRoot:
     case HostPortal: {
+      // portal组件不是挂载在原来container上的，而是自己设置了一个container
+      // 这里做替换container的操作
       const portalOrRoot: {
         containerInfo: Container,
         pendingChildren: ChildSet,
         ...
       } = finishedWork.stateNode;
       const {containerInfo, pendingChildren} = portalOrRoot;
+      // 替换portal组件的containerInfo
       replaceContainerChildren(containerInfo, pendingChildren);
       return;
     }
@@ -1129,6 +1270,7 @@ function commitContainer(finishedWork: Fiber) {
 function getHostParentFiber(fiber: Fiber): Fiber {
   let parent = fiber.return;
   while (parent !== null) {
+    // HostComponent HostRoot HostPortal
     if (isHostParent(parent)) {
       return parent;
     }
@@ -1149,6 +1291,7 @@ function isHostParent(fiber: Fiber): boolean {
   );
 }
 
+// 找到第一个sibling的第一个host child，返回其对应的stateNode
 function getHostSibling(fiber: Fiber): ?Instance {
   // We're going to search forward into the tree until we find a sibling host
   // node. Unfortunately, if multiple insertions are done in a row we have to
@@ -1157,6 +1300,7 @@ function getHostSibling(fiber: Fiber): ?Instance {
   let node: Fiber = fiber;
   siblings: while (true) {
     // If we didn't find anything, let's try the next sibling.
+    // 没有sibling就找到return.sibling直到return为null
     while (node.sibling === null) {
       if (node.return === null || isHostParent(node.return)) {
         // If we pop out of the root or hit the parent the fiber we are the
@@ -1165,8 +1309,13 @@ function getHostSibling(fiber: Fiber): ?Instance {
       }
       node = node.return;
     }
+    // 走到这里，表明找到了node.sibling
+    // 给sibling加上return指引
     node.sibling.return = node.return;
+    // node指向其sibling
     node = node.sibling;
+    // node不是host node
+    // 一直取child直到找到第一个host node
     while (
       node.tag !== HostComponent &&
       node.tag !== HostText &&
@@ -1174,12 +1323,16 @@ function getHostSibling(fiber: Fiber): ?Instance {
     ) {
       // If it is not host node and, we might have a host node inside it.
       // Try to search down until we find one.
+      // node不是host node
+
+      // node有Placement副作用，直接下一个循环
       if (node.flags & Placement) {
         // If we don't have a child, try the siblings instead.
         continue siblings;
       }
       // If we don't have a child, try the siblings instead.
       // We also skip portals because they are not part of this host tree.
+      // portals不在host tree内，这里不考虑
       if (node.child === null || node.tag === HostPortal) {
         continue siblings;
       } else {
@@ -1188,6 +1341,8 @@ function getHostSibling(fiber: Fiber): ?Instance {
       }
     }
     // Check if this host node is stable or about to be placed.
+    // 这里已经找到了host node
+    // node不需要Placement副作用，就返回node.stateNode
     if (!(node.flags & Placement)) {
       // Found it!
       return node.stateNode;
@@ -1195,18 +1350,23 @@ function getHostSibling(fiber: Fiber): ?Instance {
   }
 }
 
+// finishedWork  nextEffect
+// 将finishedWork对应的dom插入到dom结构中的对应位置
 function commitPlacement(finishedWork: Fiber): void {
   if (!supportsMutation) {
     return;
   }
 
   // Recursively insert all host nodes into the parent.
+  // 找到最近的一个 HostComponent HostRoot HostPortal 父workInProgress
   const parentFiber = getHostParentFiber(finishedWork);
 
   // Note: these two variables *must* always be updated together.
   let parent;
   let isContainer;
+  // parentFiber对应的stateNode
   const parentStateNode = parentFiber.stateNode;
+  // parent指向dom或者container
   switch (parentFiber.tag) {
     case HostComponent:
       parent = parentStateNode;
@@ -1233,42 +1393,57 @@ function commitPlacement(finishedWork: Fiber): void {
           'in React. Please file an issue.',
       );
   }
+  // 处理parent的ContentReset副作用
+  // 在这之前只处理了finishedWork的ContentReset副作用
   if (parentFiber.flags & ContentReset) {
     // Reset the text content of the parent before doing any insertions
+    // 重置parent对应的dom的文本为''
     resetTextContent(parent);
     // Clear ContentReset from the effect tag
     parentFiber.flags &= ~ContentReset;
   }
 
+  // 找到第一个sibling的第一个host child，返回其对应的stateNode
   const before = getHostSibling(finishedWork);
   // We only have the top Fiber that was inserted but we need to recurse down its
   // children to find all the terminal nodes.
+
+  // 将node(fragment就是node的所有child)插入到parent中
   if (isContainer) {
+    // 将node(fragment就是node的所有child)插入到parent中
     insertOrAppendPlacementNodeIntoContainer(finishedWork, before, parent);
   } else {
+    // 将node(fragment就是node的所有child)插入到parent中
     insertOrAppendPlacementNode(finishedWork, before, parent);
   }
 }
 
+// 将node(fragment就是node的所有child)插入到parent中
 function insertOrAppendPlacementNodeIntoContainer(
-  node: Fiber,
+  node: Fiber, // finishedWork
   before: ?Instance,
   parent: Container,
 ): void {
   const {tag} = node;
   const isHost = tag === HostComponent || tag === HostText;
   if (isHost || (enableFundamentalAPI && tag === FundamentalComponent)) {
+    // 获取dom
     const stateNode = isHost ? node.stateNode : node.stateNode.instance;
     if (before) {
+      // 将stateNode插入到parent中before之前
       insertInContainerBefore(parent, stateNode, before);
     } else {
+      // 将child插入到container中
       appendChildToContainer(parent, stateNode);
     }
   } else if (tag === HostPortal) {
     // If the insertion itself is a portal, then we don't want to traverse
     // down its children. Instead, we'll get insertions from each child in
     // the portal directly.
+    // portal组件不需要在这里插入，直接插入到对应位置
   } else {
+    // fragment
+    // 将node的所有child插入到parent中
     const child = node.child;
     if (child !== null) {
       insertOrAppendPlacementNodeIntoContainer(child, before, parent);
@@ -1281,6 +1456,8 @@ function insertOrAppendPlacementNodeIntoContainer(
   }
 }
 
+// 将node(fragment就是node的所有child)插入到parent中
+// 逻辑同insertOrAppendPlacementNodeIntoContainer，只是这里的parent一定为dom
 function insertOrAppendPlacementNode(
   node: Fiber,
   before: ?Instance,
@@ -1312,9 +1489,10 @@ function insertOrAppendPlacementNode(
   }
 }
 
+// 遍历current及其所有sibling进行卸载，对有必要的child也进行卸载
 function unmountHostComponents(
   finishedRoot: FiberRoot,
-  current: Fiber,
+  current: Fiber, // nextEffect
   renderPriorityLevel: ReactPriorityLevel,
 ): void {
   // We only have the top Fiber that was deleted but we need to recurse down its
@@ -1328,8 +1506,11 @@ function unmountHostComponents(
   // Note: these two variables *must* always be updated together.
   let currentParent;
   let currentParentIsContainer;
-
+  
+  // 遍历node及其所有sibling进行卸载，对有必要的child也进行卸载
   while (true) {
+    // 通过return向上查找最近的host node，将其dom或container设置为currentParent
+    // 完毕后将currentParentIsValid置为true
     if (!currentParentIsValid) {
       let parent = node.return;
       findParent: while (true) {
@@ -1364,9 +1545,15 @@ function unmountHostComponents(
     }
 
     if (node.tag === HostComponent || node.tag === HostText) {
+      // 原生dom或原生text
+      // 递归node及其所有children，进行卸载，然后在currentParent中移除node对应的dom
+
+      // 递归node及其所有children，执行commitUnmount方法，提交卸载
       commitNestedUnmounts(finishedRoot, node, renderPriorityLevel);
       // After all the children have unmounted, it is now safe to remove the
       // node from the tree.
+      // 这里已经完成对node及其所有children的递归卸载
+      // 接一下将node对应的dom从currentParent dom结构上移除
       if (currentParentIsContainer) {
         removeChildFromContainer(
           ((currentParent: any): Container),
@@ -1381,9 +1568,11 @@ function unmountHostComponents(
       // Don't visit children because we already visited them.
     } else if (enableFundamentalAPI && node.tag === FundamentalComponent) {
       const fundamentalNode = node.stateNode.instance;
+      // 递归node及其所有children，执行commitUnmount方法，提交卸载
       commitNestedUnmounts(finishedRoot, node, renderPriorityLevel);
       // After all the children have unmounted, it is now safe to remove the
       // node from the tree.
+      // 将node对应的dom从currentParent dom结构上移除
       if (currentParentIsContainer) {
         removeChildFromContainer(
           ((currentParent: any): Container),
@@ -1399,6 +1588,7 @@ function unmountHostComponents(
       enableSuspenseServerRenderer &&
       node.tag === DehydratedFragment
     ) {
+      // SSR 暂时不看???
       if (enableSuspenseCallback) {
         const hydrationCallbacks = finishedRoot.hydrationCallbacks;
         if (hydrationCallbacks !== null) {
@@ -1422,6 +1612,8 @@ function unmountHostComponents(
         );
       }
     } else if (node.tag === HostPortal) {
+      // portal组件
+      // 设置好currentParent，然后卸载其所有children
       if (node.child !== null) {
         // When we go into a portal, it becomes the parent to remove from.
         // We will reassign it back when we pop the portal on the way up.
@@ -1433,6 +1625,8 @@ function unmountHostComponents(
         continue;
       }
     } else {
+      // 卸载node，然后对其child进行判断
+      // 这里的node应该是没有对应dom结构，所以不用做移除???
       commitUnmount(finishedRoot, node, renderPriorityLevel);
       // Visit children because we may find more host components below.
       if (node.child !== null) {
@@ -1449,6 +1643,7 @@ function unmountHostComponents(
         return;
       }
       node = node.return;
+      // portal组件需要重新找currentParent
       if (node.tag === HostPortal) {
         // When we go out of the portal, we need to restore the parent.
         // Since we don't keep a stack of them, we will search for it.
@@ -1460,26 +1655,36 @@ function unmountHostComponents(
   }
 }
 
+// 提交删除，对current及其children(这也可能还有sibling)做卸载，移除dom结构
+// 这里会调用componentWillUnmount
+// 最后重置current及其对应的currentFiber
 function commitDeletion(
   finishedRoot: FiberRoot,
-  current: Fiber,
+  current: Fiber, // nextEffect
   renderPriorityLevel: ReactPriorityLevel,
 ): void {
   if (supportsMutation) {
     // Recursively delete all host nodes from the parent.
     // Detach refs and call componentWillUnmount() on the whole subtree.
+    // 遍历current及其所有sibling进行卸载，对有必要的child也进行卸载，并移除dom结构
+    // 内部执行commitNestedUnmounts，调用componentWillUnmount
     unmountHostComponents(finishedRoot, current, renderPriorityLevel);
   } else {
     // Detach refs and call componentWillUnmount() on the whole subtree.
+    // 递归current及其所有children(不处理current的sibling)，执行commitUnmount方法，提交卸载，不会移除dom结构
+    // 会调用componentWillUnmount
     commitNestedUnmounts(finishedRoot, current, renderPriorityLevel);
   }
-  const alternate = current.alternate;
+  const alternate = current.alternate; // nextEffect对应的currentFiber
+  // 重置current(nextEffect)
   detachFiberMutation(current);
   if (alternate !== null) {
+    // 重置alternate(nextEffect对应的currentFiber)
     detachFiberMutation(alternate);
   }
 }
 
+// 做 销毁 显示/隐藏 更新container 更新dom(根据diff的结构updatePayload) 更新dom文本 的操作
 function commitWork(current: Fiber | null, finishedWork: Fiber): void {
   if (!supportsMutation) {
     switch (finishedWork.tag) {
@@ -1493,21 +1698,28 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
         // This prevents sibling component effects from interfering with each other,
         // e.g. a destroy function in one component should never override a ref set
         // by a create function in another component during the same commit.
+        // 先销毁后创建，这样就不会形成交集
+
+        // 这里做销毁操作
         if (
           enableProfilerTimer &&
           enableProfilerCommitHooks &&
           finishedWork.mode & ProfileMode
         ) {
           try {
+            // 记录layout effect开始时间
             startLayoutEffectTimer();
+            // 将finishedWork.updateQueue.lastEffect之后的effect都执行destroy
             commitHookEffectListUnmount(
               HookLayout | HookHasEffect,
               finishedWork,
             );
           } finally {
+            // 记录layout effect持续时间并添加到父fiber和祖先fiber的stateNode.effectDuration上
             recordLayoutEffectDuration(finishedWork);
           }
         } else {
+          // 将finishedWork.updateQueue.lastEffect之后的effect都执行destroy
           commitHookEffectListUnmount(HookLayout | HookHasEffect, finishedWork);
         }
         return;
@@ -1516,11 +1728,15 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
         return;
       }
       case SuspenseComponent: {
+        // 处理suspense组件
+        // 递归finishedWork.child及其所有children，进行隐藏操作(修改display)
         commitSuspenseComponent(finishedWork);
+        // 处理超时的情况，便于在primary state重新render
         attachSuspenseRetryListeners(finishedWork);
         return;
       }
       case SuspenseListComponent: {
+        // 处理超时的情况，便于在primary state重新render
         attachSuspenseRetryListeners(finishedWork);
         return;
       }
@@ -1529,7 +1745,10 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
           const root: FiberRoot = finishedWork.stateNode;
           if (root.hydrate) {
             // We've just hydrated. No need to hydrate again.
+            // 处理SSR hydrate
+            // 将root.hydrate置为false，表明只进行一次这个逻辑
             root.hydrate = false;
+            // SSR暂时不看???
             commitHydratedContainer(root.containerInfo);
           }
         }
@@ -1541,6 +1760,8 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
       }
     }
 
+    // 非以上switch情况
+    // 提交container，主要是对portal组件对应的container进行替换
     commitContainer(finishedWork);
     return;
   }
@@ -1556,6 +1777,7 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
       // This prevents sibling component effects from interfering with each other,
       // e.g. a destroy function in one component should never override a ref set
       // by a create function in another component during the same commit.
+      // 逻辑同上一个switch，做销毁操作
       if (
         enableProfilerTimer &&
         enableProfilerCommitHooks &&
@@ -1583,12 +1805,15 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
         // For hydration we reuse the update path but we treat the oldProps
         // as the newProps. The updatePayload will contain the real change in
         // this case.
+        // SSR 会在hydrate中将oldProps同步为newProps，而在updatePayload存储change
+
         const oldProps = current !== null ? current.memoizedProps : newProps;
         const type = finishedWork.type;
         // TODO: Type the updateQueue to be specific to host components.
         const updatePayload: null | UpdatePayload = (finishedWork.updateQueue: any);
         finishedWork.updateQueue = null;
         if (updatePayload !== null) {
+          // 提交更新，将diff的结果(也就是updatePayload)更新到domElement中
           commitUpdate(
             instance,
             updatePayload,
@@ -1614,10 +1839,12 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
       // this case.
       const oldText: string =
         current !== null ? current.memoizedProps : newText;
+      // 更新textInstance的文本
       commitTextUpdate(textInstance, oldText, newText);
       return;
     }
     case HostRoot: {
+      // 同上一个switch
       if (supportsHydration) {
         const root: FiberRoot = finishedWork.stateNode;
         if (root.hydrate) {
@@ -1632,11 +1859,16 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
       return;
     }
     case SuspenseComponent: {
+      // 处理suspense组件，同上一个switch
+      // 递归finishedWork.child及其所有children，进行隐藏操作(修改display)
       commitSuspenseComponent(finishedWork);
+      // 处理超时的情况，便于在primary state重新render
       attachSuspenseRetryListeners(finishedWork);
       return;
     }
     case SuspenseListComponent: {
+      // 同上一个switch
+      // 处理超时的情况，便于在primary state重新render
       attachSuspenseRetryListeners(finishedWork);
       return;
     }
@@ -1644,6 +1876,7 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
       return;
     }
     case FundamentalComponent: {
+      // ???
       if (enableFundamentalAPI) {
         const fundamentalInstance = finishedWork.stateNode;
         updateFundamentalComponent(fundamentalInstance);
@@ -1654,6 +1887,7 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
     case ScopeComponent: {
       if (enableScopeAPI) {
         const scopeInstance = finishedWork.stateNode;
+        // scopeInstance.internalInstanceKey = finishedWork
         prepareScopeUpdate(scopeInstance, finishedWork);
         return;
       }
@@ -1662,7 +1896,10 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
     case OffscreenComponent:
     case LegacyHiddenComponent: {
       const newState: OffscreenState | null = finishedWork.memoizedState;
+      // 有newState 显示
+      // 无newState 隐藏
       const isHidden = newState !== null;
+      // // 递归finishedWork及其所有children，进行显示隐藏操作(修改display)
       hideOrUnhideAllChildren(finishedWork, isHidden);
       return;
     }
@@ -1674,9 +1911,12 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
   );
 }
 
+// 处理suspense组件
+// 递归finishedWork.child及其所有children，进行隐藏操作(修改display)
 function commitSuspenseComponent(finishedWork: Fiber) {
   const newState: SuspenseState | null = finishedWork.memoizedState;
 
+  // newState不为null，表明suspense组件需要显示
   if (newState !== null) {
     markCommitTimeOfFallback();
 
@@ -1690,11 +1930,15 @@ function commitSuspenseComponent(finishedWork: Fiber) {
       // second pass, but doing it this way is less complicated. This would be
       // simpler if we got rid of the effect list and traversed the tree, like
       // we're planning to do.
+      // suspense组件只有第一个child
       const primaryChildParent: Fiber = (finishedWork.child: any);
+      // 递归primaryChildParent及其所有children，进行隐藏操作(修改display)
+      // 传入isHidden为true
       hideOrUnhideAllChildren(primaryChildParent, true);
     }
   }
 
+  // 执行suspense组件的回调，传入new Set(finishedWork.updateQueue)
   if (enableSuspenseCallback && newState !== null) {
     const suspenseCallback = finishedWork.memoizedProps.suspenseCallback;
     if (typeof suspenseCallback === 'function') {
@@ -1741,10 +1985,13 @@ function commitSuspenseHydrationCallbacks(
   }
 }
 
+// 处理超时的情况，便于在primary state重新render
 function attachSuspenseRetryListeners(finishedWork: Fiber) {
   // If this boundary just timed out, then it will have a set of wakeables.
   // For each wakeable, attach a listener so that when it resolves, React
   // attempts to re-render the boundary in the primary (pre-timeout) state.
+  // 一旦超时，就会有wakeables，用于react在primary state重新render这种情况
+
   const wakeables: Set<Wakeable> | null = (finishedWork.updateQueue: any);
   if (wakeables !== null) {
     finishedWork.updateQueue = null;
@@ -1752,7 +1999,7 @@ function attachSuspenseRetryListeners(finishedWork: Fiber) {
     if (retryCache === null) {
       retryCache = finishedWork.stateNode = new PossiblyWeakSet();
     }
-    wakeables.forEach(wakeable => {
+    wakeables.forEach((wakeable) => {
       // Memoize using the boundary fiber to prevent redundant listeners.
       let retry = resolveRetryWakeable.bind(null, finishedWork, wakeable);
       if (!retryCache.has(wakeable)) {
@@ -1771,9 +2018,11 @@ function attachSuspenseRetryListeners(finishedWork: Fiber) {
 // This function detects when a Suspense boundary goes from visible to hidden.
 // It returns false if the boundary is already hidden.
 // TODO: Use an effect tag.
+// suspense组件是否显示
+// true为显示 false为隐藏
 export function isSuspenseBoundaryBeingHidden(
   current: Fiber | null,
-  finishedWork: Fiber,
+  finishedWork: Fiber, // nextEffect
 ): boolean {
   if (current !== null) {
     const oldState: SuspenseState | null = current.memoizedState;
@@ -1785,10 +2034,13 @@ export function isSuspenseBoundaryBeingHidden(
   return false;
 }
 
+// current  nextEffect
+// 重置current.stateNode的文本为''
 function commitResetTextContent(current: Fiber) {
   if (!supportsMutation) {
     return;
   }
+  // 重置current.stateNode的文本为''
   resetTextContent(current.stateNode);
 }
 

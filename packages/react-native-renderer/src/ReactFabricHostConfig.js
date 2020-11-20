@@ -416,17 +416,21 @@ export function createContainerChildSet(container: Container): ChildSet {
   return createChildNodeSet(container);
 }
 
+// childSet.push(child.node)
 export function appendChildToContainerChildSet(
   childSet: ChildSet,
-  child: Instance | TextInstance,
+  child: Instance | TextInstance, // stateNode
 ): void {
+  // childSet.push(child.node)
   appendChildNodeToSet(childSet, child.node);
 }
 
+// 全局roots.set(container, newChildren)
 export function finalizeContainerChildren(
   container: Container,
   newChildren: ChildSet,
 ): void {
+  // 全局roots.set(container, newChildren)
   completeRoot(container, newChildren);
 }
 

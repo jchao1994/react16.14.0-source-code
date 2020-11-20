@@ -200,15 +200,16 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     removeChildFromContainerOrInstance(parentInstance, child);
   }
 
+  // 根据老的current.stateNode和新的workInProgress克隆出一个instance
   function cloneInstance(
-    instance: Instance,
-    updatePayload: null | Object,
-    type: string,
-    oldProps: Props,
-    newProps: Props,
-    internalInstanceHandle: Object,
-    keepChildren: boolean,
-    recyclableInstance: null | Instance,
+    instance: Instance, // current.stateNode
+    updatePayload: null | Object, // 新老props diff出来的更新内容
+    type: string, // workInProgress.type
+    oldProps: Props, // current.memoizedProps
+    newProps: Props, // workInProgress.pendingProps
+    internalInstanceHandle: Object, // workInProgress
+    keepChildren: boolean, // workInProgress.firstEffect === null  workInProgress是否有update队列
+    recyclableInstance: null | Instance, // workInProgress.stateNode
   ): Instance {
     const clone = {
       id: instance.id,

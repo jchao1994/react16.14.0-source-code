@@ -18,6 +18,11 @@ import {TEXT_NODE} from '../shared/HTMLNodeType';
  * @param {string} text
  * @internal
  */
+// 设置文本
+// 文本节点才可以使用nodeValue
+// p标签的nodeValue为null，只能使用p.firstChild.nodeValue
+// node.firstChild.nodeValue = text
+// node.textContent = text
 const setTextContent = function(node: Element, text: string): void {
   if (text) {
     const firstChild = node.firstChild;

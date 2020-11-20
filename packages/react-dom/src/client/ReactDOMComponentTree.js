@@ -43,13 +43,15 @@ const internalEventHandlersKey = '__reactEvents$' + randomKey;
 const internalEventHandlerListenersKey = '__reactListeners$' + randomKey;
 const internalEventHandlesSetKey = '__reactHandles$' + randomKey;
 
+// 将hostInst workInProgress挂载到reactElement实例的internalInstanceKey上
 export function precacheFiberNode(
-  hostInst: Fiber,
-  node: Instance | TextInstance | SuspenseInstance | ReactScopeInstance,
+  hostInst: Fiber, // workInProgress
+  node: Instance | TextInstance | SuspenseInstance | ReactScopeInstance, // reactElement实例
 ): void {
   (node: any)[internalInstanceKey] = hostInst;
 }
 
+// 给container附加一个内部属性  '__reactContainer$' + randomKey  用于指向fiberRoot的current属性对应的rootFiber节点hostRootFiber
 export function markContainerAsRoot(hostRoot: Fiber, node: Container): void {
   node[internalContainerInstanceKey] = hostRoot;
 }
@@ -189,9 +191,10 @@ export function getFiberCurrentPropsFromNode(
   return (node: any)[internalPropsKey] || null;
 }
 
+// 将props挂载到reactElement实例的internalPropsKey上
 export function updateFiberProps(
-  node: Instance | TextInstance | SuspenseInstance,
-  props: Props,
+  node: Instance | TextInstance | SuspenseInstance, // dom
+  props: Props, // newProps
 ): void {
   (node: any)[internalPropsKey] = props;
 }

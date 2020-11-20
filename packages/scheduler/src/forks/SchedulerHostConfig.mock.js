@@ -18,6 +18,7 @@ let isFlushing: boolean = false;
 let needsPaint: boolean = false;
 let shouldYieldForPaint: boolean = false;
 
+// 设置scheduledCallback为callback
 export function requestHostCallback(callback: boolean => void) {
   scheduledCallback = callback;
 }
@@ -26,11 +27,14 @@ export function cancelHostCallback(): void {
   scheduledCallback = null;
 }
 
+// ms  delay time
+// 设置scheduledTimeout和timeoutTime
 export function requestHostTimeout(callback: number => void, ms: number) {
   scheduledTimeout = callback;
   timeoutTime = currentTime + ms;
 }
 
+// 重置scheduledTimeout和timeoutTime
 export function cancelHostTimeout(): void {
   scheduledTimeout = null;
   timeoutTime = -1;

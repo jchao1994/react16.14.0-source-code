@@ -46,6 +46,7 @@ function recordCommitTime(): void {
   commitTime = now();
 }
 
+// 记录开始时间
 function startProfilerTimer(fiber: Fiber): void {
   if (!enableProfilerTimer) {
     return;
@@ -65,6 +66,7 @@ function stopProfilerTimerIfRunning(fiber: Fiber): void {
   profilerStartTime = -1;
 }
 
+// 记录结束时间
 function stopProfilerTimerIfRunningAndRecordDelta(
   fiber: Fiber,
   overrideBaseTime: boolean,
@@ -74,15 +76,19 @@ function stopProfilerTimerIfRunningAndRecordDelta(
   }
 
   if (profilerStartTime >= 0) {
+    // 持续时间
     const elapsedTime = now() - profilerStartTime;
+    // 累加持续时间，更新render持续时间
     fiber.actualDuration += elapsedTime;
     if (overrideBaseTime) {
+      // completeWork的持续时间
       fiber.selfBaseDuration = elapsedTime;
     }
     profilerStartTime = -1;
   }
 }
 
+// 记录layout effect持续时间并添加到父fiber和祖先fiber的stateNode.effectDuration上
 function recordLayoutEffectDuration(fiber: Fiber): void {
   if (!enableProfilerTimer || !enableProfilerCommitHooks) {
     return;
@@ -134,6 +140,7 @@ function recordPassiveEffectDuration(fiber: Fiber): void {
   }
 }
 
+// 记录layout effect开始时间
 function startLayoutEffectTimer(): void {
   if (!enableProfilerTimer || !enableProfilerCommitHooks) {
     return;

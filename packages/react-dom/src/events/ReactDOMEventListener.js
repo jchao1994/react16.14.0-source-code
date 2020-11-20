@@ -90,33 +90,39 @@ export function createEventListenerWrapper(
   );
 }
 
+// 根据优先级生成对应事件
 export function createEventListenerWrapperWithPriority(
-  targetContainer: EventTarget,
-  domEventName: DOMEventName,
-  eventSystemFlags: EventSystemFlags,
+  targetContainer: EventTarget, // 事件容器
+  domEventName: DOMEventName, // 事件名
+  eventSystemFlags: EventSystemFlags, // 事件标志
 ): Function {
+  // 获取事件优先级，若没有，则默认为继续事件优先级2
   const eventPriority = getEventPriorityForPluginSystem(domEventName);
   let listenerWrapper;
   switch (eventPriority) {
+    // 0 离散事件
     case DiscreteEvent:
       listenerWrapper = dispatchDiscreteEvent;
       break;
+    // 1 用户阻塞事件
     case UserBlockingEvent:
       listenerWrapper = dispatchUserBlockingUpdate;
       break;
+    // 2 继续事件
     case ContinuousEvent:
     default:
       listenerWrapper = dispatchEvent;
       break;
   }
   return listenerWrapper.bind(
-    null,
-    domEventName,
-    eventSystemFlags,
-    targetContainer,
+    null, // context
+    domEventName, // 事件名 
+    eventSystemFlags, // 事件标志
+    targetContainer, // 事件容器
   );
 }
 
+// 将isInsideEventHandler设为true，执行dispatchEvent(domEventName,eventSystemFlags,container,nativeEvent)
 function dispatchDiscreteEvent(
   domEventName,
   eventSystemFlags,
@@ -131,6 +137,7 @@ function dispatchDiscreteEvent(
   ) {
     flushDiscreteUpdatesIfNeeded(nativeEvent.timeStamp);
   }
+  // 将isInsideEventHandler设为true，执行dispatchEvent(domEventName,eventSystemFlags,container,nativeEvent)
   discreteUpdates(
     dispatchEvent,
     domEventName,
@@ -140,6 +147,9 @@ function dispatchDiscreteEvent(
   );
 }
 
+// 根据decoupleUpdatePriorityFromScheduler来判断是否有这一步，将currentUpdateLanePriority设为InputContinuousLanePriority(也就是10)
+// 将currentPriorityLevel设为UserBlockingPriority(也就是1)
+// 执行dispatchEvent(domEventName,eventSystemFlags,container,nativeEvent)函数
 function dispatchUserBlockingUpdate(
   domEventName,
   eventSystemFlags,
@@ -147,10 +157,15 @@ function dispatchUserBlockingUpdate(
   nativeEvent,
 ) {
   if (decoupleUpdatePriorityFromScheduler) {
+    // 将currentUpdateLanePriority设为InputContinuousLanePriority(也就是10)
+    // 将currentPriorityLevel设为UserBlockingPriority(也就是1)
+    // 执行dispatchEvent(domEventName,eventSystemFlags,container,nativeEvent)函数
     const previousPriority = getCurrentUpdateLanePriority();
     try {
       // TODO: Double wrapping is necessary while we decouple Scheduler priority.
+      // InputContinuousLanePriority为10
       setCurrentUpdateLanePriority(InputContinuousLanePriority);
+      // 将currentPriorityLevel设为UserBlockingPriority(也就是1)，执行dispatchEvent函数
       runWithPriority(
         UserBlockingPriority,
         dispatchEvent.bind(
@@ -165,6 +180,7 @@ function dispatchUserBlockingUpdate(
       setCurrentUpdateLanePriority(previousPriority);
     }
   } else {
+    // 将currentPriorityLevel设为UserBlockingPriority(也就是1)，执行dispatchEvent函数
     runWithPriority(
       UserBlockingPriority,
       dispatchEvent.bind(
@@ -184,6 +200,7 @@ export function dispatchEvent(
   targetContainer: EventTarget,
   nativeEvent: AnyNativeEvent,
 ): void {
+
   if (!_enabled) {
     return;
   }

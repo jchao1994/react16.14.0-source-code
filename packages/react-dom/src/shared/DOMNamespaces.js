@@ -16,6 +16,7 @@ export const Namespaces = {
 };
 
 // Assumes there is no parent namespace.
+// 假设我们父级命名空间
 export function getIntrinsicNamespace(type: string): string {
   switch (type) {
     case 'svg':
@@ -27,6 +28,7 @@ export function getIntrinsicNamespace(type: string): string {
   }
 }
 
+// 获取子命名空间
 export function getChildNamespace(
   parentNamespace: string | null,
   type: string,

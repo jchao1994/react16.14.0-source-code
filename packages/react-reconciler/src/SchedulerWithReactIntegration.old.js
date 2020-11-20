@@ -124,27 +124,34 @@ function reactPriorityToSchedulerPriority(reactPriorityLevel) {
   }
 }
 
+// 设置最新的优先级，然后执行回调
 export function runWithPriority<T>(
   reactPriorityLevel: ReactPriorityLevel,
   fn: () => T,
 ): T {
+  // react优先级转为调度优先级
   const priorityLevel = reactPriorityToSchedulerPriority(reactPriorityLevel);
   return Scheduler_runWithPriority(priorityLevel, fn);
 }
 
+// 根据优先级调度callback，返回newTask
 export function scheduleCallback(
   reactPriorityLevel: ReactPriorityLevel,
   callback: SchedulerCallback,
   options: SchedulerCallbackOptions | void | null,
 ) {
   const priorityLevel = reactPriorityToSchedulerPriority(reactPriorityLevel);
+  // 返回newTask
   return Scheduler_scheduleCallback(priorityLevel, callback, options);
 }
 
+// 将callback推入内部同步队列，如果callback是第一个，直接在next tick调度它
 export function scheduleSyncCallback(callback: SchedulerCallback) {
   // Push this callback into an internal queue. We'll flush these either in
   // the next tick, or earlier if something calls `flushSyncCallbackQueue`.
   if (syncQueue === null) {
+    // 没有同步队列
+    // next tick直接开始调度第一个
     syncQueue = [callback];
     // Flush the queue in the next tick, at the earliest.
     immediateQueueCallbackNode = Scheduler_scheduleCallback(
@@ -154,6 +161,7 @@ export function scheduleSyncCallback(callback: SchedulerCallback) {
   } else {
     // Push onto existing queue. Don't need to schedule a callback because
     // we already scheduled one when we created the queue.
+    // 已经有同步队列，此时正在调度其中的一个回调，所以不用调度
     syncQueue.push(callback);
   }
   return fakeCallbackNode;
@@ -165,27 +173,40 @@ export function cancelCallback(callbackNode: mixed) {
   }
 }
 
+// 开始同步回调队列
 export function flushSyncCallbackQueue() {
+  // 移除immediateQueueCallbackNode及其回调
   if (immediateQueueCallbackNode !== null) {
     const node = immediateQueueCallbackNode;
     immediateQueueCallbackNode = null;
+    // node._controller.abort() 中断
     Scheduler_cancelCallback(node);
   }
+  // 开始同步回调队列
   flushSyncCallbackQueueImpl();
 }
 
+// 开始同步回调队列，遍历执行队列中的每一个回调
+// 根据decoupleUpdatePriorityFromScheduler分为带最新优先级和不带最新优先级两种
 function flushSyncCallbackQueueImpl() {
   if (!isFlushingSyncQueue && syncQueue !== null) {
     // Prevent re-entrancy.
-    isFlushingSyncQueue = true;
+    // 只有不在进行同步回调队列且有同步队列才进行
+    isFlushingSyncQueue = true; // 标记正在进行同步回调队列
     let i = 0;
     if (decoupleUpdatePriorityFromScheduler) {
+      // 设置最新优先级，再开始同步回调队列
+
+      // 获取当前优先级currentUpdateLanePriority
       const previousLanePriority = getCurrentUpdateLanePriority();
       try {
         const isSync = true;
         const queue = syncQueue;
+        // 设置当前优先级currentUpdateLanePriority为SyncLanePriority
         setCurrentUpdateLanePriority(SyncLanePriority);
+        // 设置最新的优先级，然后执行回调
         runWithPriority(ImmediatePriority, () => {
+          // 遍历执行同步队列的每一个callback，并传入isSync标志
           for (; i < queue.length; i++) {
             let callback = queue[i];
             do {
@@ -193,23 +214,30 @@ function flushSyncCallbackQueueImpl() {
             } while (callback !== null);
           }
         });
+        // 同步队列完成，重置为null
         syncQueue = null;
       } catch (error) {
         // If something throws, leave the remaining callbacks on the queue.
+        // 中途出错，保留同步队列中i+1及之后的callback
+        // i执行的回调已经执行完毕，但是i对应的callback???
         if (syncQueue !== null) {
           syncQueue = syncQueue.slice(i + 1);
         }
         // Resume flushing in the next tick
+        // 重新开始
         Scheduler_scheduleCallback(
           Scheduler_ImmediatePriority,
           flushSyncCallbackQueue,
         );
         throw error;
       } finally {
+        // 结束，优先级重新设为之前的值，并标记不在进行同步回调队列
         setCurrentUpdateLanePriority(previousLanePriority);
         isFlushingSyncQueue = false;
       }
     } else {
+      // 不设置最新优先级，直接开始同步回调队列
+      // 其他步骤同上
       try {
         const isSync = true;
         const queue = syncQueue;

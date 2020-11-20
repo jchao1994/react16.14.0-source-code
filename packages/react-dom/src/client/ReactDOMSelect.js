@@ -132,6 +132,7 @@ function updateOptions(
  * selected.
  */
 
+ // 处理select标签的props
 export function getHostProps(element: Element, props: Object) {
   return Object.assign({}, props, {
     value: undefined,
@@ -177,6 +178,7 @@ export function postMountWrapper(element: Element, props: Object) {
   }
 }
 
+// 更新select标签的selected defaultSelected
 export function postUpdateWrapper(element: Element, props: Object) {
   const node = ((element: any): SelectWithWrapperState);
   const wasMultiple = node._wrapperState.wasMultiple;

@@ -89,6 +89,7 @@ if (__DEV__) {
   };
 }
 
+// 根据container来获取DOM容器中的第一个子节点
 function getReactRootElementInContainer(container: any) {
   if (!container) {
     return null;
@@ -101,22 +102,33 @@ function getReactRootElementInContainer(container: any) {
   }
 }
 
+// 根据nodeType和attribute判断是否需要融合
+// 服务端渲染结果如下，带有data-reactroot属性
+// {/* <body>
+//     <div id="root">
+//         <div data-reactroot=""></div>
+//     </div>
+// </body> */}
 function shouldHydrateDueToLegacyHeuristic(container) {
   const rootElement = getReactRootElementInContainer(container);
   return !!(
     rootElement &&
-    rootElement.nodeType === ELEMENT_NODE &&
-    rootElement.hasAttribute(ROOT_ATTRIBUTE_NAME)
+    rootElement.nodeType === ELEMENT_NODE && // 1
+    rootElement.hasAttribute(ROOT_ATTRIBUTE_NAME) // data-reactroot
   );
 }
 
+// 创建并返回一个ReactDOMBlockingRoot实例
+// 该实例具有一个_internalRoot属性指向fiberRoot，且有render和unmount方法
 function legacyCreateRootFromDOMContainer(
-  container: Container,
+  container: Container, // document.getElementById('root')
   forceHydrate: boolean,
 ): RootType {
+  // 是否需要融合(SSR)
   const shouldHydrate =
     forceHydrate || shouldHydrateDueToLegacyHeuristic(container);
   // First clear any existing content.
+  // 针对客户端渲染的情况，清除container上的所有节点
   if (!shouldHydrate) {
     let warned = false;
     let rootSibling;
@@ -149,6 +161,10 @@ function legacyCreateRootFromDOMContainer(
     }
   }
 
+  // 返回一个ReactDOMBlockingRoot实例
+  // 该实例具有一个_internalRoot属性指向fiberRoot，且有render和unmount方法
+  // this._internalRoot = createRootImpl(container, tag, options)
+  // 如果是服务端渲染，React不删除子节点DOM的原因，在于复用已有DOM提高渲染性能
   return createLegacyRoot(
     container,
     shouldHydrate
@@ -172,12 +188,13 @@ function warnOnInvalidCallback(callback: mixed, callerName: string): void {
   }
 }
 
+// 内部渲染函数
 function legacyRenderSubtreeIntoContainer(
-  parentComponent: ?React$Component<any, any>,
-  children: ReactNodeList,
-  container: Container,
-  forceHydrate: boolean,
-  callback: ?Function,
+  parentComponent: ?React$Component<any, any>, // 父组件，root节点这里为null，因为root节点不存在父级组件
+  children: ReactNodeList, // 传入子元素，业务代码中通常为<App/>
+  container: Container, // 父节点容器，业务代码中通常为document.getElementById('root')
+  forceHydrate: boolean, // 是否SSR标志
+  callback: ?Function, // 组件渲染完成后需要执行的回调函数，一般情况我们极少在业务代码中写回调函数
 ) {
   if (__DEV__) {
     topLevelUpdateWarnings(container);
@@ -186,28 +203,51 @@ function legacyRenderSubtreeIntoContainer(
 
   // TODO: Without `any` type, Flow says "Property cannot be accessed on any
   // member of intersection type." Whyyyyyy.
+  // 在第一次执行的时候，container上是肯定没有_reactRootContainer属性的
+  // 所以第一次执行时，root肯定为undefined
+  // 从业务代码中我们得知，这就是一个id为root的真实dom对象
   let root: RootType = (container._reactRootContainer: any);
+  // 定义一个fiberRoot变量，它是React fiber树的根，也是所有的虚拟DOM的集合对象
   let fiberRoot;
   if (!root) {
     // Initial mount
+    // 首次渲染
+    // 进入当前流程控制中，container._reactRootContainer指向一个ReactDOMBlockingRoot实例
+    // 因为root不存在，我们现在要基于这个真实DOM创建root，这个对象中有一个指针属性_internalRoot
+    // 上面挂载了整个fiber树，同时会给真实DOM添加一个私有属性__reactContainer$randomKey，
+    // 表示它是当前React项目的容器
     root = container._reactRootContainer = legacyCreateRootFromDOMContainer(
       container,
       forceHydrate,
     );
+    // root表示一个ReactSyncRoot实例，实例中有一个_internalRoot方法指向一个fiberRoot实例
+    // 整个fiber树
     fiberRoot = root._internalRoot;
+    // 重写callback
+    // 一般情况下我们很少去传入第三个参数callback，所以可以不必关心这里的内容
     if (typeof callback === 'function') {
-      const originalCallback = callback;
+      const originalCallback = callback; // 用户传入的callback
       callback = function() {
+        // 通过fiberRoot去找到其对应的rootFiber，然后将rootFiber的第一个child的stateNode作为callback中的this指向
         const instance = getPublicRootInstance(fiberRoot);
         originalCallback.call(instance);
       };
     }
     // Initial mount should not be batched.
+    // 对于首次挂载来说，更新操作不应该是批量的，所以会先执行unbatchedUpdates方法
+    // 该方法中会将executionContext(执行上下文)切换成LegacyUnbatchedContext(非批量上下文)
+    // 切换上下文之后再调用updateContainer执行更新操作
+    // 执行完updateContainer之后再将executionContext恢复到之前的状态
     unbatchedUpdates(() => {
+      // 更新整个react容器，整个fiberRoot的对象树会被整体构建
       updateContainer(children, fiberRoot, parentComponent, callback);
     });
   } else {
+    // 更新渲染
+    // container._reactRootContainer上已经存在一个ReactDOMBlockingRoot实例
     fiberRoot = root._internalRoot;
+    // 重写callback，同首次渲染
+    // 一般情况下我们很少去传入第三个参数callback，所以可以不必关心这里的内容
     if (typeof callback === 'function') {
       const originalCallback = callback;
       callback = function() {
@@ -216,8 +256,12 @@ function legacyRenderSubtreeIntoContainer(
       };
     }
     // Update
+    // 对于非首次挂载来说，是不需要再调用unbatchedUpdates方法的
+    // 即不再需要将executionContext(执行上下文)切换成LegacyUnbatchedContext(非批量上下文)
+    // 而是直接调用updateContainer执行更新操作
     updateContainer(children, fiberRoot, parentComponent, callback);
   }
+  // 返回rootFiber.child.stateNode，是这个fiberRoot对象???
   return getPublicRootInstance(fiberRoot);
 }
 
@@ -253,10 +297,11 @@ export function findDOMNode(
   return findHostInstance(componentOrElement);
 }
 
+// 服务端渲染SSR
 export function hydrate(
-  element: React$Node,
-  container: Container,
-  callback: ?Function,
+  element: React$Node, // vnode
+  container: Container, // 父节点容器
+  callback: ?Function, // 组件渲染完成后需要执行的回调函数
 ) {
   invariant(
     isValidContainer(container),
@@ -284,10 +329,14 @@ export function hydrate(
   );
 }
 
+// ReactDOM.render，客户端渲染
+// ReactDOM.render()只是编写在jsx文件中的函数，对于react-dom库来说它一不负责diff算法，二不负责dom绘制
+// 它只负责在fiberNode和浏览器DOM之间做一个桥接，告诉react-reconciler库你该如何更新fiber树，然后把新的fiber树还我
+// 在拿到新的fiber树后，它会通过babel抽取AST语法树将代码编写成React.createElement()形式，最后生成真实DOM渲染到浏览器上。
 export function render(
-  element: React$Element<any>,
-  container: Container,
-  callback: ?Function,
+  element: React$Element<any>, // 子元素
+  container: Container, // 父节点容器
+  callback: ?Function, // 组件渲染完成后需要执行的回调函数
 ) {
   invariant(
     isValidContainer(container),

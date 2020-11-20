@@ -108,7 +108,7 @@ export function markTaskStart(
     priorityLevel: PriorityLevel,
     ...
   },
-  ms: number,
+  ms: number, // currentTime
 ) {
   if (enableProfiling) {
     profilingState[QUEUE_SIZE]++;

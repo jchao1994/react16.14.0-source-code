@@ -42,6 +42,7 @@ const eventPriorities = new Map();
 // Lastly, we ignore prettier so we can keep the formatting sane.
 
 // prettier-ignore
+// 离散事件
 const discreteEventPairsForSimpleEventPlugin = [
   ('cancel': DOMEventName), 'cancel',
   ('click': DOMEventName), 'click',
@@ -97,6 +98,7 @@ if (enableCreateEventHandleAPI) {
 }
 
 // prettier-ignore
+// 用户阻塞事件
 const userBlockingPairsForSimpleEventPlugin: Array<string | DOMEventName> = [
   ('drag': DOMEventName), 'drag',
   ('dragenter': DOMEventName), 'dragEnter',
@@ -116,6 +118,7 @@ const userBlockingPairsForSimpleEventPlugin: Array<string | DOMEventName> = [
 ];
 
 // prettier-ignore
+// 继续事件
 const continuousPairsForSimpleEventPlugin: Array<string | DOMEventName> = [
   ('abort': DOMEventName), 'abort',
   (ANIMATION_END: DOMEventName), 'animationEnd',
@@ -156,9 +159,10 @@ const continuousPairsForSimpleEventPlugin: Array<string | DOMEventName> = [
  *
  * and registers them.
  */
+// 设置对应事件名及其优先级，然后注册事件及其捕获事件
 function registerSimplePluginEventsAndSetTheirPriorities(
   eventTypes: Array<DOMEventName | string>,
-  priority: EventPriority,
+  priority: EventPriority, // 优先级  DiscreteEvent 0  UserBlockingEvent 1  ContinuousEvent 2
 ): void {
   // As the event types are in pairs of two, we need to iterate
   // through in twos. The events are in pairs of two to save code
@@ -166,26 +170,38 @@ function registerSimplePluginEventsAndSetTheirPriorities(
   // result in far fewer object allocations and property accesses
   // if we only use three arrays to process all the categories of
   // instead of tuples.
+  // eventTypes都是成对的，所有这里是i+=2
   for (let i = 0; i < eventTypes.length; i += 2) {
+    // abort
     const topEvent = ((eventTypes[i]: any): DOMEventName);
+    // abort
     const event = ((eventTypes[i + 1]: any): string);
+    // Abort
     const capitalizedEvent = event[0].toUpperCase() + event.slice(1);
+    // onAbort
     const reactName = 'on' + capitalizedEvent;
+    // 设置事件的优先级
+    // abort 2  abort是继续事件，优先级为2
     eventPriorities.set(topEvent, priority);
+    // abort onAbort
     topLevelEventsToReactNames.set(topEvent, reactName);
+    // 注册事件及其捕获事件
     registerTwoPhaseEvent(reactName, [topEvent]);
   }
 }
 
 function setEventPriorities(
-  eventTypes: Array<DOMEventName>,
-  priority: EventPriority,
+  eventTypes: Array<DOMEventName>, // otherDiscreteEvents
+  priority: EventPriority, // 0
 ): void {
   for (let i = 0; i < eventTypes.length; i++) {
+    // 设置事件的优先级
+    // otherDiscreteEvents中的每个事件优先级都为0
     eventPriorities.set(eventTypes[i], priority);
   }
 }
 
+// 获取事件优先级，若没有，则默认为继续事件优先级2
 export function getEventPriorityForPluginSystem(
   domEventName: DOMEventName,
 ): EventPriority {
@@ -214,17 +230,19 @@ export function getEventPriorityForListenerSystem(
 }
 
 export function registerSimpleEvents() {
+  // 设置对应事件名及其优先级，然后注册事件及其捕获事件
   registerSimplePluginEventsAndSetTheirPriorities(
     discreteEventPairsForSimpleEventPlugin,
-    DiscreteEvent,
+    DiscreteEvent, // 0
   );
   registerSimplePluginEventsAndSetTheirPriorities(
     userBlockingPairsForSimpleEventPlugin,
-    UserBlockingEvent,
+    UserBlockingEvent, // 1
   );
   registerSimplePluginEventsAndSetTheirPriorities(
     continuousPairsForSimpleEventPlugin,
-    ContinuousEvent,
+    ContinuousEvent, // 2
   );
+  // 设置otherDiscreteEvents中的事件优先级为0
   setEventPriorities(otherDiscreteEvents, DiscreteEvent);
 }

@@ -79,7 +79,7 @@ export function onScheduleRoot(root: FiberRoot, children: ReactNodeList) {
 }
 
 export function onCommitRoot(
-  root: FiberRoot,
+  root: FiberRoot, // finishedWork.stateNode
   priorityLevel: ReactPriorityLevel,
 ) {
   if (injectedHook && typeof injectedHook.onCommitFiberRoot === 'function') {
@@ -106,6 +106,7 @@ export function onCommitRoot(
   }
 }
 
+// fiber  nextEffect
 export function onCommitUnmount(fiber: Fiber) {
   if (injectedHook && typeof injectedHook.onCommitFiberUnmount === 'function') {
     try {

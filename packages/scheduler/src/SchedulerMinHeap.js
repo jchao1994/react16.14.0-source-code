@@ -13,9 +13,11 @@ type Node = {|
   sortIndex: number,
 |};
 
+// 将node推入heap，并根据sortIndex和id对heap做增序排序
 export function push(heap: Heap, node: Node): void {
   const index = heap.length;
   heap.push(node);
+  // 增序排序
   siftUp(heap, node, index);
 }
 
@@ -38,11 +40,19 @@ export function pop(heap: Heap): Node | null {
   }
 }
 
+// heap 当前新数组
+// node 新添加的
+// 原来的heap对应的length
+// 根据sortIndex和id递增将node放在heap中对应的位置，也就是做一个增序排序
 function siftUp(heap, node, i) {
+  // index对应的node
   let index = i;
   while (true) {
+    // index - 1对应的是原来heap的最后一个元素的index
+    // parentIndex是相对于index - 1的中间
     const parentIndex = (index - 1) >>> 1;
     const parent = heap[parentIndex];
+    // 比较parent和node的sortIndex和id
     if (parent !== undefined && compare(parent, node) > 0) {
       // The parent is larger. Swap positions.
       heap[parentIndex] = node;

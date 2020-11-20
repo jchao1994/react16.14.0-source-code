@@ -38,6 +38,7 @@ type TextAreaWithWrapperState = HTMLTextAreaElement & {|
  * `defaultValue` if specified, or the children content (deprecated).
  */
 
+ // 处理textarea标签的props
 export function getHostProps(element: Element, props: Object) {
   const node = ((element: any): TextAreaWithWrapperState);
   invariant(
@@ -122,6 +123,7 @@ export function initWrapperState(element: Element, props: Object) {
   };
 }
 
+// 更新textarea标签的value defaultValue
 export function updateWrapper(element: Element, props: Object) {
   const node = ((element: any): TextAreaWithWrapperState);
   const value = getToStringValue(props.value);

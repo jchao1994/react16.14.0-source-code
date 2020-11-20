@@ -88,9 +88,9 @@ export type RefObject = {|
 
 export type EventPriority = 0 | 1 | 2;
 
-export const DiscreteEvent: EventPriority = 0;
-export const UserBlockingEvent: EventPriority = 1;
-export const ContinuousEvent: EventPriority = 2;
+export const DiscreteEvent: EventPriority = 0; // 离散事件
+export const UserBlockingEvent: EventPriority = 1; // 用户阻塞事件
+export const ContinuousEvent: EventPriority = 2; // 继续事件
 
 export type ReactFundamentalComponentInstance<C, H> = {|
   currentFiber: Object,

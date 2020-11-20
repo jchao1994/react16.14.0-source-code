@@ -1781,6 +1781,7 @@ export function attach(
     // This is not recursive.
     // We can't traverse fibers after unmounting so instead
     // we rely on React telling us about each unmount.
+    // 这里不是递归的
     recordUnmount(fiber, false);
   }
 

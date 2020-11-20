@@ -72,6 +72,7 @@ export function exitDisallowedContextReadInDEV(): void {
   }
 }
 
+// 更新value指针
 export function pushProvider<T>(providerFiber: Fiber, nextValue: T): void {
   const context: ReactContext<T> = providerFiber.type._context;
 
@@ -294,6 +295,7 @@ export function propagateContextChange(
   }
 }
 
+// 设置didReceiveUpdate，标记当前workInProgress是否需要接收更新
 export function prepareToReadContext(
   workInProgress: Fiber,
   renderLanes: Lanes,
@@ -308,6 +310,7 @@ export function prepareToReadContext(
     if (firstContext !== null) {
       if (includesSomeLane(dependencies.lanes, renderLanes)) {
         // Context list has a pending update. Mark that this fiber performed work.
+        // didReceiveUpdate设为true，标记当前workInProgress需要接收更新
         markWorkInProgressReceivedUpdate();
       }
       // Reset the work-in-progress list

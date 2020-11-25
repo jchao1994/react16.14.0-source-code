@@ -22,6 +22,8 @@ import ReactCurrentDispatcher from './ReactCurrentDispatcher';
 type BasicStateAction<S> = (S => S) | S;
 type Dispatch<A> = A => void;
 
+// 获取ReactCurrentDispatcher.current作为dispatcher
+// ReactCurrentDispatcher.current会根据mount/update来选用对应的方法
 function resolveDispatcher() {
   const dispatcher = ReactCurrentDispatcher.current;
   invariant(
@@ -77,9 +79,13 @@ export function useContext<T>(
   return dispatcher.useContext(Context, unstable_observedBits);
 }
 
+// 每一次调用useState，会先找到对应的dispatcher，再调用其useState，返回[state, dispatch]
+// 这样就实现了，虽然每次表面调用相同的useState，但是内部的dispatcher会根据环境不同(mount/update)而改变
 export function useState<S>(
   initialState: (() => S) | S,
 ): [S, Dispatch<BasicStateAction<S>>] {
+  // 获取ReactCurrentDispatcher.current作为dispatcher
+  // ReactCurrentDispatcher.current会根据mount/update来选用对应的方法
   const dispatcher = resolveDispatcher();
   return dispatcher.useState(initialState);
 }

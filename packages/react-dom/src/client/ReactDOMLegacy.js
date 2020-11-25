@@ -261,7 +261,7 @@ function legacyRenderSubtreeIntoContainer(
     // 而是直接调用updateContainer执行更新操作
     updateContainer(children, fiberRoot, parentComponent, callback);
   }
-  // 返回rootFiber.child.stateNode，是这个fiberRoot对象???
+  // 返回rootFiber.child.stateNode，rootFiber.child对应的组件实例
   return getPublicRootInstance(fiberRoot);
 }
 
@@ -334,8 +334,8 @@ export function hydrate(
 // 它只负责在fiberNode和浏览器DOM之间做一个桥接，告诉react-reconciler库你该如何更新fiber树，然后把新的fiber树还我
 // 在拿到新的fiber树后，它会通过babel抽取AST语法树将代码编写成React.createElement()形式，最后生成真实DOM渲染到浏览器上。
 export function render(
-  element: React$Element<any>, // 子元素
-  container: Container, // 父节点容器
+  element: React$Element<any>, // 子元素，jsx内部通过createElement解析成的reactElement对象，通常为<App />
+  container: Container, // 父节点容器，通常为document.getElementById('root')
   callback: ?Function, // 组件渲染完成后需要执行的回调函数
 ) {
   invariant(

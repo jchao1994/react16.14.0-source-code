@@ -214,6 +214,7 @@ export function createUpdate(eventTime: number, lane: Lane): Update<*> {
   return update;
 }
 
+// 将update放在fiber.updateQueue.shared.pending队列末尾
 // enqueueUpdate是针对fiber链表的一个更新方法，将update task对象挂载到pending属性上
 // 这里的fiber是workInProgress
 export function enqueueUpdate<State>(fiber: Fiber, update: Update<State>) {

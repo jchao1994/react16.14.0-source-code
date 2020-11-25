@@ -137,9 +137,11 @@ function getContextForSubtree(
     return emptyContextObject;
   }
 
+  // parentComponent._reactInternals
   const fiber = getInstance(parentComponent);
   const parentContext = findCurrentUnmaskedContext(fiber);
 
+  // 类组件
   if (fiber.tag === ClassComponent) {
     const Component = fiber.type;
     if (isLegacyContextProvider(Component)) {
@@ -261,7 +263,8 @@ export function updateContainer(
   if (__DEV__) {
     onScheduleRoot(container, element);
   }
-  // 获取当前更新的fiber对象
+  // 获取当前更新的fiber对象rootFiber
+  // 这个是workInProgress???
   const current = container.current;
   // 获取eventTime（程序运行到此刻的时间戳），React会基于它进行更新优先级排序
   const eventTime = requestEventTime();
@@ -276,12 +279,14 @@ export function updateContainer(
   // 旧模式中lane只为SyncLane = 1
   const lane = requestUpdateLane(current);
 
+  // 标记schedule-render 调度render
   if (enableSchedulingProfiler) {
     markRenderScheduled(lane);
   }
 
   // 获取当前树结构的上下文
   const context = getContextForSubtree(parentComponent);
+  // 更新container上的context
   if (container.context === null) {
     // 如果是首次渲染，就直接挂载
     container.context = context;
@@ -330,10 +335,12 @@ export function updateContainer(
     update.callback = callback;
   }
 
-  // 将update对象放在fiber的更新队列上
+  // 将update放在current.updateQueue.shared.pending队列末尾
   // 从名称上看是队列更新，实际上是对fiber中的链表进行更新，将update task对象挂载到pending属性上
   enqueueUpdate(current, update);
   // 开始react异步渲染的核心，任务调度更新  React Scheduler
+  // 内部核心逻辑都是performSyncWorkOnRoot
+  // performSyncWorkOnRoot 先执行同步工作renderRootSync，然后提交root
   scheduleUpdateOnFiber(current, lane, eventTime);
   // 经过一系列更新之后，我们将刚开始创建的lane返回
   return lane;
@@ -362,9 +369,13 @@ export function getPublicRootInstance(
     return null;
   }
   switch (containerFiber.child.tag) {
-    case HostComponent: // 原生dom节点组件???
+    case HostComponent: 
+      // 原生dom组件
+      // 返回containerFiber.child.stateNode
       return getPublicInstance(containerFiber.child.stateNode);
     default:
+      // 其他
+      // 返回containerFiber.child.stateNode
       return containerFiber.child.stateNode;
   }
 }

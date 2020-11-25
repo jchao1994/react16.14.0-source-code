@@ -319,9 +319,12 @@ export function prepareToReadContext(
   }
 }
 
+// useContext
+// currentlyRenderingFiber.dependencies存放firstContext，也就是contextItem链表的第一个
+// 返回context上的值，根据主次渲染器返回对应的value
 export function readContext<T>(
-  context: ReactContext<T>,
-  observedBits: void | number | boolean,
+  context: ReactContext<T>, // React.createContext的返回值
+  observedBits: void | number | boolean, // 一般为undefined
 ): T {
   if (__DEV__) {
     // This warning would fire if you read context inside a Hook like useMemo.
@@ -335,7 +338,7 @@ export function readContext<T>(
       );
     }
   }
-
+  
   if (lastContextWithAllBitsObserved === context) {
     // Nothing to do. We already observe everything in this context.
   } else if (observedBits === false || observedBits === 0) {
@@ -347,6 +350,8 @@ export function readContext<T>(
       observedBits === MAX_SIGNED_31_BIT_INT
     ) {
       // Observe all updates.
+
+      // 将React.createContext创建的context对象放在lastContextWithAllBitsObserved上
       lastContextWithAllBitsObserved = ((context: any): ReactContext<mixed>);
       resolvedObservedBits = MAX_SIGNED_31_BIT_INT;
     } else {
@@ -359,6 +364,8 @@ export function readContext<T>(
       next: null,
     };
 
+    // lastContextDependency是contextItem链表的最后一个contextItem
+    // currentlyRenderingFiber.dependencies存放firstContext，也就是contextItem链表的第一个
     if (lastContextDependency === null) {
       invariant(
         currentlyRenderingFiber !== null,
@@ -380,5 +387,6 @@ export function readContext<T>(
       lastContextDependency = lastContextDependency.next = contextItem;
     }
   }
+  // 返回context上的值，根据主次渲染器返回对应的value
   return isPrimaryRenderer ? context._currentValue : context._currentValue2;
 }

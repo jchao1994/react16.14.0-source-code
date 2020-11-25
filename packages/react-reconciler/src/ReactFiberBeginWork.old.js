@@ -791,6 +791,7 @@ function updateFunctionComponent(
   }
 
   // 不需要更新
+  // didReceiveUpdate为true，就一定会走reconcileChildren逻辑render
   if (current !== null && !didReceiveUpdate) {
     // workInProgress复用current.updateQueue
     // workInProgress清除passiveEffect和updateEffect副作用
@@ -3283,6 +3284,7 @@ function beginWork(
   // 拿到didReceiveUpdate标识，是否需要接收更新
   if (current !== null) {
     // 老的props
+    // 指向hooks的workInProgressHook链表
     const oldProps = current.memoizedProps;
     // 新的props
     const newProps = workInProgress.pendingProps;
@@ -3544,6 +3546,7 @@ function beginWork(
         current,
         workInProgress,
         workInProgress.type,
+    
         renderLanes,
       );
     }

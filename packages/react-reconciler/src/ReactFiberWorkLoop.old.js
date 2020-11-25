@@ -532,7 +532,7 @@ export function scheduleUpdateOnFiber(
   checkForNestedUpdates();
   warnAboutRenderPhaseUpdatesInDEV(fiber);
 
-  // 当前Fiber向上遍历找到rootFiber，同时更新childLanes
+  // 当前fiber向上遍历找到rootFiber对应的fiberRoot，同时更新childLanes
   const root = markUpdateLaneFromFiberToRoot(fiber, lane);
   // root不存在，直接返回null
   if (root === null) {
@@ -661,7 +661,7 @@ export function scheduleUpdateOnFiber(
 // work without treating it as a typical update that originates from an event;
 // e.g. retrying a Suspense boundary isn't an update, but it does schedule work
 // on a fiber.
-// 当前Fiber向上遍历找到rootFiber，同时更新childLanes
+// 当前Fiber向上遍历找到rootFiber对应的fiberRoot，同时更新childLanes
 function markUpdateLaneFromFiberToRoot(
   sourceFiber: Fiber, // currentFiber
   lane: Lane,
@@ -1802,7 +1802,7 @@ function performUnitOfWork(unitOfWork: Fiber): void {
 }
 
 // 按照child => sibling => return.sibling => return.sibling.child => ... 的顺序依次complete
-//完成当前节点的 work，然后移动到兄弟节点，重复该操作，当没有更多兄弟节点时，返回至父节点
+// 完成当前节点的 work，然后移动到兄弟节点，重复该操作，当没有更多兄弟节点时，返回至父节点
 function completeUnitOfWork(unitOfWork: Fiber): void {
   // Attempt to complete the current unit of work, then move to the next
   // sibling. If there are no more siblings, return to the parent fiber.
@@ -2078,6 +2078,9 @@ function resetChildLanes(completedWork: Fiber) {
 }
 
 // 提交fiberRoot
+// 这里会走三个阶段before mutation  mutation  layout
+// 更新dom，触发生命周期componentWillUnmounted componentDidMount componentDidUpdate
+// 三个阶段走完，就停止调度，让浏览器绘制页面
 function commitRoot(root) {
   // 当前render优先级
   const renderPriorityLevel = getCurrentPriorityLevel();
@@ -2092,7 +2095,7 @@ function commitRoot(root) {
 // 先设置最新的调度优先级，然后会执行这个函数
 // 整个root的提交
 // 这里会走三个阶段before mutation  mutation  layout
-// 更新dom，触发生命周期componentWillUnmounted componentDidMount componentDidUpdate
+// 更新dom，触发生命周期componentWillUnmounted(对应useEffect的返回值函数) componentDidMount(对应useEffect) componentDidUpdate(对应useEffect)
 // 三个阶段走完，就停止调度，让浏览器绘制页面
 function commitRootImpl(root, renderPriorityLevel) {
   do {
@@ -2320,6 +2323,7 @@ function commitRootImpl(root, renderPriorityLevel) {
           // 第二个阶段mutation
           // 遍历effect list，处理ContentReset Ref Placement Update Deletion Hydrating副作用
           // 这里保留ContentReset和Ref，删除Placement Update Deletion Hydrating
+          // 这里会调用componentWillUnmount，以及useEffect的返回值函数
           commitMutationEffects(root, renderPriorityLevel);
         } catch (error) {
           invariant(nextEffect !== null, 'Should be working on an effect.');
@@ -2370,6 +2374,7 @@ function commitRootImpl(root, renderPriorityLevel) {
           //    触发componentDidMount或componentDidUpdate
           //    清空updateQueue以其所有effect的callback
           //    触发自动聚焦autoFocus
+          //    执行useEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
           commitLayoutEffects(root, lanes);
         } catch (error) {
           invariant(nextEffect !== null, 'Should be working on an effect.');
@@ -2511,6 +2516,9 @@ function commitRootImpl(root, renderPriorityLevel) {
   // Always call this before exiting `commitRoot`, to ensure that any
   // additional work on this root is scheduled.
   // 在退出commitRoot之前总是执行ensureRootIsScheduled，检查是否有额外的工作被调度了
+  // 最后添加的rootWithPendingPassiveEffects是不是在这里调度执行flushPassiveEffects???
+  // 依赖项改变的useEffect副作用函数在这里调度处理，在flushPassiveEffects中执行
+  // 这里useEffect的依赖项一定不变，所以不会触发无限循环的调度ensureRootIsScheduled
   ensureRootIsScheduled(root, now());
 
   // 有错误
@@ -2626,6 +2634,7 @@ function commitBeforeMutationEffects() {
 // 第二阶段mutation
 // 遍历effect list，处理ContentReset Ref Placement Update Deletion Hydrating副作用
 // 这里保留ContentReset和Ref，删除Placement Update Deletion Hydrating
+// 这里会调用componentWillUnmount，以及useEffect的返回值函数
 function commitMutationEffects(
   root: FiberRoot,
   renderPriorityLevel: ReactPriorityLevel,
@@ -2727,7 +2736,7 @@ function commitMutationEffects(
       case Deletion: {
         // 处理Deletion副作用
         // 提交删除，对current及其children(这也可能还有sibling)做卸载，移除dom结构
-        // 这里会调用componentWillUnmount
+        // 这里会调用componentWillUnmount，以及useEffect的返回值函数
         // 最后重置nextEffect及其对应的currentFiber
         commitDeletion(root, nextEffect, renderPriorityLevel);
         break;
@@ -2745,6 +2754,7 @@ function commitMutationEffects(
 //    触发componentDidMount或componentDidUpdate
 //    清空updateQueue以其所有effect的callback
 //    触发自动聚焦autoFocus
+//    执行useEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
 function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
   if (__DEV__) {
     if (enableDebugTracing) {
@@ -2770,6 +2780,7 @@ function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
       // 触发componentDidMount或componentDidUpdate
       // 清空updateQueue以其所有effect的callback
       // 触发自动聚焦autoFocus
+      // 执行useEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
       commitLayoutEffectOnFiber(root, current, nextEffect, committedLanes);
     }
 
@@ -2803,6 +2814,9 @@ function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
   }
 }
 
+// 这个函数什么时候调用???
+// 这个函数处理依赖项变化的useEffect副作用回调???
+// 清除脏作用，什么意思???
 export function flushPassiveEffects(): boolean {
   // Returns whether passive effects were flushed.
   if (pendingPassiveEffectsRenderPriority !== NoSchedulerPriority) {
@@ -2822,6 +2836,7 @@ export function flushPassiveEffects(): boolean {
         setCurrentUpdateLanePriority(previousLanePriority);
       }
     } else {
+      // 设置最新的优先级，然后执行flushPassiveEffectsImpl
       return runWithPriority(priorityLevel, flushPassiveEffectsImpl);
     }
   }
@@ -2881,13 +2896,21 @@ function invokePassiveEffectCreate(effect: HookEffect): void {
   effect.destroy = create();
 }
 
+// flushPassiveEffects的内部函数
+// 第一步，销毁老的passive effects
+//    遍历pendingPassiveHookEffectsUnmount，执行每一个effect的destroy方法，并将effect.destroy重置为undefined
+// 第二步，创建新的passive effects
+//    遍历pendingPassiveHookEffectsMount，执行每一个effect的create方法，并将返回值给到destroy，用于后续销毁
+// 第三步，处理自身rootFiber对应的effect list中的deletion副作用
 function flushPassiveEffectsImpl() {
+  // 没有passiveEffects的fiberRoot，直接返回false
   if (rootWithPendingPassiveEffects === null) {
     return false;
   }
 
   const root = rootWithPendingPassiveEffects;
   const lanes = pendingPassiveEffectsLanes;
+  // 取完rootWithPendingPassiveEffects和pendingPassiveEffectsLanes后将其重置清空
   rootWithPendingPassiveEffects = null;
   pendingPassiveEffectsLanes = NoLanes;
 
@@ -2902,6 +2925,7 @@ function flushPassiveEffectsImpl() {
     }
   }
 
+  // 标记passive-effects-start
   if (enableSchedulingProfiler) {
     markPassiveEffectsStarted(lanes);
   }
@@ -2910,6 +2934,7 @@ function flushPassiveEffectsImpl() {
     isFlushingPassiveEffects = true;
   }
 
+  // 暂存之前的执行上下文和交互，用于结束后的恢复
   const prevExecutionContext = executionContext;
   executionContext |= CommitContext;
   const prevInteractions = pushInteractions(root);
@@ -2920,10 +2945,13 @@ function flushPassiveEffectsImpl() {
   // e.g. a destroy function in one component may unintentionally override a ref
   // value set by a create function in another component.
   // Layout effects have the same constraint.
+  // 所有pending passive effect destroy functions必须先于任何passive effect create functions，否则会互相干扰
 
   // First pass: Destroy stale passive effects.
+  // 第一步，销毁老的passive effects
   const unmountEffects = pendingPassiveHookEffectsUnmount;
   pendingPassiveHookEffectsUnmount = [];
+  // 遍历pendingPassiveHookEffectsUnmount，执行每一个effect的destroy方法，并将effect.destroy重置为undefined
   for (let i = 0; i < unmountEffects.length; i += 2) {
     const effect = ((unmountEffects[i]: any): HookEffect);
     const fiber = ((unmountEffects[i + 1]: any): Fiber);
@@ -2965,6 +2993,8 @@ function flushPassiveEffectsImpl() {
             enableProfilerCommitHooks &&
             fiber.mode & ProfileMode
           ) {
+            // 记录passive effect的持续时间
+            // 执行destroy
             try {
               startPassiveEffectTimer();
               destroy();
@@ -2972,6 +3002,7 @@ function flushPassiveEffectsImpl() {
               recordPassiveEffectDuration(fiber);
             }
           } else {
+            // 执行destroy
             destroy();
           }
         } catch (error) {
@@ -2982,8 +3013,10 @@ function flushPassiveEffectsImpl() {
     }
   }
   // Second pass: Create new passive effects.
+  // 第二步，创建新的passive effects
   const mountEffects = pendingPassiveHookEffectsMount;
   pendingPassiveHookEffectsMount = [];
+  // 遍历pendingPassiveHookEffectsMount，执行每一个effect的create方法，并将返回值给到destroy，用于后续销毁
   for (let i = 0; i < mountEffects.length; i += 2) {
     const effect = ((mountEffects[i]: any): HookEffect);
     const fiber = ((mountEffects[i + 1]: any): Fiber);
@@ -3015,12 +3048,15 @@ function flushPassiveEffectsImpl() {
           fiber.mode & ProfileMode
         ) {
           try {
+            // 记录passive effect持续时间
+            // 执行create方法，返回值为destroy，用于后续销毁
             startPassiveEffectTimer();
             effect.destroy = create();
           } finally {
             recordPassiveEffectDuration(fiber);
           }
         } else {
+          // 执行create方法，返回值为destroy，用于后续销毁
           effect.destroy = create();
         }
       } catch (error) {
@@ -3033,17 +3069,24 @@ function flushPassiveEffectsImpl() {
   // Note: This currently assumes there are no passive effects on the root fiber
   // because the root is not part of its own effect list.
   // This could change in the future.
+  // 这里已经没有passive effects，但是还有root自身的
+
+  // root.current指向rootFiber
+  // 处理rootFiber对应的effect list中的deletion副作用
   let effect = root.current.firstEffect;
   while (effect !== null) {
     const nextNextEffect = effect.nextEffect;
     // Remove nextEffect pointer to assist GC
     effect.nextEffect = null;
+    // 处理effect的deletion副作用
     if (effect.flags & Deletion) {
+      // 清空effect的siblng和stateNode
       detachFiberAfterEffects(effect);
     }
     effect = nextNextEffect;
   }
 
+  // 遍历pendingPassiveProfilerEffects，对每个fiber提交passive effect持续时间
   if (enableProfilerTimer && enableProfilerCommitHooks) {
     const profilerEffects = pendingPassiveProfilerEffects;
     pendingPassiveProfilerEffects = [];
@@ -3053,6 +3096,7 @@ function flushPassiveEffectsImpl() {
     }
   }
 
+  // 恢复交互
   if (enableSchedulerTracing) {
     popInteractions(((prevInteractions: any): Set<Interaction>));
     finishPendingInteractions(root, lanes);
@@ -3068,19 +3112,24 @@ function flushPassiveEffectsImpl() {
     }
   }
 
+  // 标记passive-effects-stop
   if (enableSchedulingProfiler) {
     markPassiveEffectsStopped();
   }
 
+  // 恢复执行上下文
   executionContext = prevExecutionContext;
 
   flushSyncCallbackQueue();
 
   // If additional passive effects were scheduled, increment a counter. If this
   // exceeds the limit, we'll fire a warning.
+  // 没有passive effects的fiberRoot，则清空计数
+  // 否则，每加一个passive effect，就增加一个计数，当计数达到阈值，就报错
   nestedPassiveUpdateCount =
     rootWithPendingPassiveEffects === null ? 0 : nestedPassiveUpdateCount + 1;
 
+  // 完成，返回true
   return true;
 }
 
@@ -4143,6 +4192,7 @@ export function act(callback: () => Thenable<mixed>): Thenable<void> {
   }
 }
 
+// 清空fiber的siblng和stateNode
 function detachFiberAfterEffects(fiber: Fiber): void {
   fiber.sibling = null;
   fiber.stateNode = null;

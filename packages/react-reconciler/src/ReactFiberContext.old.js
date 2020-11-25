@@ -176,13 +176,15 @@ function pushTopLevelContextObject(
 
 function processChildContext(
   fiber: Fiber,
-  type: any,
+  type: any, // Component
   parentContext: Object,
 ): Object {
   if (disableLegacyContext) {
     return parentContext;
   } else {
+    // 组件实例
     const instance = fiber.stateNode;
+    // contextType
     const childContextTypes = type.childContextTypes;
 
     // TODO (bvaughn) Replace this behavior with an invariant() in the future.

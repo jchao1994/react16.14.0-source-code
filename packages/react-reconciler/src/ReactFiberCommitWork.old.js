@@ -231,6 +231,7 @@ function safelyDetachRef(current: Fiber) {
 }
 
 // 执行destroy方法
+// destroy也就是useEffect的返回值函数
 function safelyCallDestroy(current: Fiber, destroy: () => void) {
   if (__DEV__) {
     invokeGuardedCallback(null, destroy, null);
@@ -364,6 +365,9 @@ function commitHookEffectListUnmount(tag: number, finishedWork: Fiber) {
   }
 }
 
+// 处理hook useEffect，执行副作用回调
+// finishedWork.updateQueue上存放着带useEffect的副作用回调的effect对象
+// effect.create就是副作用回调，create()的返回值函数作为destroy，在卸载组件时调用
 // 遍历updateQueue，effect.destroy赋值为effect.create()的执行结果
 function commitHookEffectListMount(tag: number, finishedWork: Fiber) {
   const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue: any);
@@ -372,6 +376,11 @@ function commitHookEffectListMount(tag: number, finishedWork: Fiber) {
     const firstEffect = lastEffect.next;
     let effect = firstEffect;
     do {
+      // 这里的tag为 HookLayout(0b010) | HookHasEffect(0b001)，也就是0b011
+      // 只有当effect.tag的后两位均为1时，才会执行副作用函数
+      // 依赖项数组内容发生变化，effect.tag为 0b101(useEffect)/0b011(useLayoutEffect)，没有发生变化为 0b100
+      // 这里只有发生变化的useLayoutEffect才会执行副作用回调
+      // 那发生变化的useEffect副作用回调呢???
       if ((effect.tag & tag) === tag) {
         // Mount
         const create = effect.create;
@@ -491,6 +500,7 @@ export function commitPassiveEffectDurations(
 }
 
 // 提交生命周期
+// FunctionComponent  执行useEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
 // ClassComponent  触发componentDidMount或componentDidUpdate，清空updateQueue以其所有effect的callback
 // HostRoot  处理子child，清空updateQueue以其所有effect的callback
 // HostComponent  触发自动聚焦autoFocus
@@ -516,6 +526,9 @@ function commitLifeCycles(
       ) {
         try {
           startLayoutEffectTimer();
+          // 处理hook useEffect，执行副作用回调
+          // finishedWork.updateQueue上存放着带useEffect的副作用回调的effect对象
+          // effect.create就是副作用回调，create()的返回值函数作为destroy，在卸载组件时调用
           // 遍历updateQueue，effect.destroy赋值为effect.create()的执行结果
           commitHookEffectListMount(HookLayout | HookHasEffect, finishedWork);
         } finally {
@@ -1015,7 +1028,7 @@ function commitDetachRef(current: Fiber) {
 // 用户发起的errors不应该删除，而host发起的errors应该删除
 
 // 递归nextEffect及其所有children执行这个方法，提交卸载
-// Block 对需要删除的effect执行destroy方法
+// FunctionComponent 对需要删除的effect执行destroy方法，destroy也就是useEffect的返回值函数
 // ClassComponent 重置ref，调用用户传入的componentWillUnmount方法
 // HostComponent 重置ref
 // portal组件 重置container
@@ -1034,6 +1047,7 @@ function commitUnmount(
     case SimpleMemoComponent:
     case Block: {
       // 对current.updateQueue.lastEffect之后的所有effect执行destroy方法，记录layout effect持续时间
+      // destroy也就是useEffect的返回值函数
       const updateQueue: FunctionComponentUpdateQueue | null = (current.updateQueue: any);
       if (updateQueue !== null) {
         const lastEffect = updateQueue.lastEffect;
@@ -1055,6 +1069,7 @@ function commitUnmount(
                 ) {
                   startLayoutEffectTimer();
                   // 执行destroy方法
+                  // destroy也就是useEffect的返回值函数
                   safelyCallDestroy(current, destroy);
                   recordLayoutEffectDuration(current);
                 } else {

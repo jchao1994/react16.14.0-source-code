@@ -134,7 +134,8 @@ export function runWithPriority<T>(
   return Scheduler_runWithPriority(priorityLevel, fn);
 }
 
-// 根据优先级调度callback，返回newTask
+// 根据优先级调度callback，返回newTask，这个newTask会被推入taskQueue/timerQueue
+// 返回的newTask的callback就是传入的callback
 export function scheduleCallback(
   reactPriorityLevel: ReactPriorityLevel,
   callback: SchedulerCallback,
@@ -145,7 +146,9 @@ export function scheduleCallback(
   return Scheduler_scheduleCallback(priorityLevel, callback, options);
 }
 
-// 将callback推入内部同步队列，如果callback是第一个，直接在next tick调度它
+// 将callback推入内部同步队列
+// 如果callback是第一个，将flushSyncCallbackQueueImpl作为callback设置immediateQueueCallbackNode，直接在next tick调度它
+// 返回fakeCallbackNode，这个有什么用
 export function scheduleSyncCallback(callback: SchedulerCallback) {
   // Push this callback into an internal queue. We'll flush these either in
   // the next tick, or earlier if something calls `flushSyncCallbackQueue`.
@@ -154,8 +157,18 @@ export function scheduleSyncCallback(callback: SchedulerCallback) {
     // next tick直接开始调度第一个
     syncQueue = [callback];
     // Flush the queue in the next tick, at the earliest.
+    // 将 flushSyncCallbackQueueImpl 作为callback封装成一个newTask对象，根据其startTime判断将其push到timerQueue或taskQueue中
+    // 然后执行对应的requestHostTimeout或requestHostCallback
+    // 最后返回这个newTask对象
+    // 这个方法会设置flushWork为scheduledHostCallback，并在next tick也就是channel.port1.onmessage触发performWorkUntilDeadline
+    // performWorkUntilDeadline 会循环执行 scheduledHostCallback => flushWork => workLoop，直到异步更新完taskQueue中的所有任务
+    // flushWork 函数是作为scheduledCallback执行，其核心逻辑是workLoop
+    // workLoop 是fiber架构异步更新的原理
+    // 执行流程是 flushWork => flushSyncCallbackQueueImpl => syncQueue中的callback
     immediateQueueCallbackNode = Scheduler_scheduleCallback(
       Scheduler_ImmediatePriority,
+      // 开始同步回调队列syncQueue，遍历执行队列中的每一个回调
+      // 根据decoupleUpdatePriorityFromScheduler分为带最新优先级和不带最新优先级两种
       flushSyncCallbackQueueImpl,
     );
   } else {
@@ -173,7 +186,7 @@ export function cancelCallback(callbackNode: mixed) {
   }
 }
 
-// 开始同步回调队列
+// 移除immediateQueueCallbackNode，开始同步回调队列syncQueue
 export function flushSyncCallbackQueue() {
   // 移除immediateQueueCallbackNode及其回调
   if (immediateQueueCallbackNode !== null) {
@@ -182,11 +195,11 @@ export function flushSyncCallbackQueue() {
     // node._controller.abort() 中断
     Scheduler_cancelCallback(node);
   }
-  // 开始同步回调队列
+  // 开始同步回调队列syncQueue
   flushSyncCallbackQueueImpl();
 }
 
-// 开始同步回调队列，遍历执行队列中的每一个回调
+// 开始同步回调队列syncQueue，遍历执行队列中的每一个回调
 // 根据decoupleUpdatePriorityFromScheduler分为带最新优先级和不带最新优先级两种
 function flushSyncCallbackQueueImpl() {
   if (!isFlushingSyncQueue && syncQueue !== null) {

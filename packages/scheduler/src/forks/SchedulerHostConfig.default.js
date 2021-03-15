@@ -76,6 +76,8 @@ if (
   requestPaint = forceFrameRate = function() {};
 } else {
   // Capture local references to native APIs, in case a polyfill overrides them.
+  // fiber架构异步更新依赖浏览器原生api window.requestAnimationFrame window.cancelAnimationFrame
+
   const setTimeout = window.setTimeout;
   const clearTimeout = window.clearTimeout;
 
@@ -120,6 +122,8 @@ if (
   const maxYieldInterval = 300;
   let needsPaint = false;
 
+  // 兼容性处理navigator.scheduling
+  // 设置shouldYieldToHost和requestPaint
   if (
     enableIsInputPending &&
     navigator !== undefined &&
@@ -127,6 +131,8 @@ if (
     navigator.scheduling.isInputPending !== undefined
   ) {
     const scheduling = navigator.scheduling;
+    // 是否需要移交控制给浏览器
+    // 超时/需要重绘为true，否则为false
     shouldYieldToHost = function() {
       const currentTime = getCurrentTime();
       if (currentTime >= deadline) {
@@ -165,6 +171,7 @@ if (
     requestPaint = function() {};
   }
 
+  // fps只支持0到125
   forceFrameRate = function(fps) {
     if (fps < 0 || fps > 125) {
       // Using console['error'] to evade Babel and ESLint
@@ -182,25 +189,32 @@ if (
     }
   };
 
+  // 这里会循环执行 scheduledHostCallback => flushWork => workLoop，直到异步更新完taskQueue中的所有任务
   const performWorkUntilDeadline = () => {
     if (scheduledHostCallback !== null) {
       const currentTime = getCurrentTime();
       // Yield after `yieldInterval` ms, regardless of where we are in the vsync
       // cycle. This means there's always time remaining at the beginning of
       // the message event.
+      // 当前时间 加上 每帧的时间，即为超时时间
+      // 这个超时时间用在shouldYieldToHost中，用于判断是否需要移交控制给浏览器
       deadline = currentTime + yieldInterval;
       const hasTimeRemaining = true;
       try {
+        // taskQueue被中断的话，这里为true，否则为false
         const hasMoreWork = scheduledHostCallback(
           hasTimeRemaining,
           currentTime,
         );
         if (!hasMoreWork) {
+          // taskQueue中没有任务，标记isMessageLoopRunning为false，重置scheduledHostCallback为null，结束循环
           isMessageLoopRunning = false;
           scheduledHostCallback = null;
         } else {
           // If there's more work, schedule the next message event at the end
           // of the preceding one.
+          // taskQueue被中断，继续触发performWorkUntilDeadline
+          // 这里会一直调用 scheduledHostCallback => flushWork => workLoop，直到异步更新完taskQueue中的所有任务
           port.postMessage(null);
         }
       } catch (error) {
@@ -210,10 +224,12 @@ if (
         throw error;
       }
     } else {
+      // 没有scheduledHostCallback，标记isMessageLoopRunning为false，结束循环
       isMessageLoopRunning = false;
     }
     // Yielding to the browser will give it a chance to paint, so we can
     // reset this.
+    // 这里设置needsPaint为false，这个needsPaint用在shouldYieldToHost中，用于判断是否需要移交控制给浏览器
     needsPaint = false;
   };
 
@@ -221,6 +237,7 @@ if (
   const port = channel.port2;
   channel.port1.onmessage = performWorkUntilDeadline;
 
+  // 设置requestHostCallback，并触发performWorkUntilDeadline
   requestHostCallback = function(callback) {
     scheduledHostCallback = callback;
     if (!isMessageLoopRunning) {
@@ -233,6 +250,7 @@ if (
     scheduledHostCallback = null;
   };
 
+  // 设置taskTimeoutID，延时ms后执行callback
   requestHostTimeout = function(callback, ms) {
     taskTimeoutID = setTimeout(() => {
       callback(getCurrentTime());

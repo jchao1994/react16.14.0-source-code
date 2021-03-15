@@ -389,7 +389,6 @@ export function getCurrentTime() {
   return now();
 }
 
-
 // 泳道的优先级计算基于fiber.mode属性值分为以下几类：
 //   1. SyncLane同步泳道 也就是普通泳道
 //   2. 在并发模式下的同步泳道
@@ -398,13 +397,16 @@ export function getCurrentTime() {
 export function requestUpdateLane(fiber: Fiber): Lane {
   // Special cases
   const mode = fiber.mode;
-  if ((mode & BlockingMode) === NoMode) { // 非BlockingMode 0b00010
+  if ((mode & BlockingMode) === NoMode) {
+    // 非BlockingMode 0b00010
     return (SyncLane: Lane); // 0b0000000000000000000000000000001
-  } else if ((mode & ConcurrentMode) === NoMode) { // 非ConcurrentMode 0b00100，也就是这边只有BlockingMode
+  } else if ((mode & ConcurrentMode) === NoMode) {
+    // 非ConcurrentMode 0b00100，也就是这边只有BlockingMode
     return getCurrentPriorityLevel() === ImmediateSchedulerPriority
       ? (SyncLane: Lane) // 0b0000000000000000000000000000001
       : (SyncBatchedLane: Lane); // 0b0000000000000000000000000000010
-  } else if ( // 上面两种已经包含所有情况，这里是什么???
+  } else if (
+    // 上面两种已经包含所有情况，这里是什么???
     !deferRenderPhaseUpdateToNextBatch &&
     (executionContext & RenderContext) !== NoContext &&
     workInProgressRootRenderLanes !== NoLanes
@@ -523,6 +525,9 @@ function requestRetryLane(fiber: Fiber) {
 // fiber里的调度更新
 // 内部核心逻辑都是performSyncWorkOnRoot
 // performSyncWorkOnRoot 先执行同步工作renderRootSync，然后提交root
+// 将performSyncWorkOnRoot作为callback推入内部同步队列syncQueue
+// 如果这个callback是第一个，将flushSyncCallbackQueueImpl作为callback设置immediateQueueCallbackNode，直接在next tick调度它
+// 执行流程是flushWork => flushSyncCallbackQueueImpl => performSyncWorkOnRoot
 export function scheduleUpdateOnFiber(
   fiber: Fiber, // currentFiber
   lane: Lane, // 泳道，旧模式中lane只为SyncLane = 1
@@ -602,7 +607,9 @@ export function scheduleUpdateOnFiber(
     } else {
       // fiberRoot获取到新的callback优先级和callbackNode
       // 如果旧的优先级existingCallbackPriority和newCallbackPriority相同，就不重新获取，直接返回
-      // 内部会调用performSyncWorkOnRoot(root)
+      // 将performSyncWorkOnRoot作为callback推入内部同步队列syncQueue
+      // 如果这个callback是第一个，将flushSyncCallbackQueueImpl作为callback设置immediateQueueCallbackNode，直接在next tick调度它
+      // 执行流程是flushWork => flushSyncCallbackQueueImpl => performSyncWorkOnRoot
       ensureRootIsScheduled(root, eventTime);
       // ???
       schedulePendingInteractions(root, lane);
@@ -613,7 +620,7 @@ export function scheduleUpdateOnFiber(
         // without immediately flushing it. We only do this for user-initiated
         // updates, to preserve historical behavior of legacy mode.
         resetRenderTimer();
-        // 开始同步回调队列，遍历执行队列中的每一个回调
+        // 移除immediateQueueCallbackNode，开始同步回调队列syncQueue，遍历执行队列中的每一个回调
         // 根据decoupleUpdatePriorityFromScheduler分为带最新优先级和不带最新优先级两种
         flushSyncCallbackQueue();
       }
@@ -719,6 +726,10 @@ function markUpdateLaneFromFiberToRoot(
 
 // fiberRoot获取到新的callback优先级和callbackNode
 // 如果旧的优先级existingCallbackPriority和newCallbackPriority相同，就不重新获取，直接返回
+// 将performSyncWorkOnRoot作为callback推入内部同步队列syncQueue
+// 如果这个callback是第一个，将flushSyncCallbackQueueImpl作为callback设置immediateQueueCallbackNode，直接在next tick调度它
+// 哪里设置了next tick的调度逻辑???
+// 执行流程是flushWork => flushSyncCallbackQueueImpl => performSyncWorkOnRoot/performConcurrentWorkOnRoot
 function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
   // 在当前fiberRoot中获取callbackNode
   const existingCallbackNode = root.callbackNode;
@@ -771,12 +782,21 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
 
   // Schedule a new callback.
   // 调度一个新的回调函数
+  // performSyncWorkOnRoot 同步任务
+  // performConcurrentWorkOnRoot 异步任务，可以打断，每次调用都要查看是否超时
   let newCallbackNode;
   if (newCallbackPriority === SyncLanePriority) {
     // Special case: Sync React callbacks are scheduled on a special
     // internal queue
     // 同步优先级
-    // 将callback推入内部同步队列，如果callback是第一个，直接在next tick调度它
+    // 将 performSyncWorkOnRoot 作为callback推入内部同步队列syncQueue
+    // 如果callback是第一个，将flushSyncCallbackQueueImpl作为callback设置immediateQueueCallbackNode，直接在next tick调度它
+    // 哪里设置了next tick的调度逻辑???
+    // 返回fakeCallbackNode，这个有什么用
+    // 这个方法只会设置scheduledCallback和scheduledTimeout，而不会立即执行flushWork
+    // flushWork函数是作为scheduledCallback执行，其核心逻辑是workLoop
+    // workLoop是fiber架构异步更新的原理
+    // 执行流程是flushWork => flushSyncCallbackQueueImpl => performSyncWorkOnRoot
     newCallbackNode = scheduleSyncCallback(
       performSyncWorkOnRoot.bind(null, root),
     );
@@ -792,7 +812,8 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
     const schedulerPriorityLevel = lanePriorityToSchedulerPriority(
       newCallbackPriority,
     );
-    // 根据优先级调度callback
+    // 根据优先级调度performConcurrentWorkOnRoot，返回newTask，这个newTask会被推入taskQueue/timerQueue
+    // 返回的newTask的callback就是传入的performConcurrentWorkOnRoot
     newCallbackNode = scheduleCallback(
       schedulerPriorityLevel,
       performConcurrentWorkOnRoot.bind(null, root),
@@ -806,6 +827,10 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
 
 // This is the entry point for every concurrent task, i.e. anything that
 // goes through Scheduler.
+// 异步任务，可以打断，每次调用都要查看是否超时
+// performConcurrentWorkOnRoot是newTask的callback，会被推入taskQueue/timerQueue
+// performConcurrentWorkOnRoot继续返回performConcurrentWorkOnRoot的话，会进入异步更新循环
+// 如果返回null，就结束异步更新循环
 function performConcurrentWorkOnRoot(root) {
   // Since we know we're in a React event, we can clear the current
   // event time. The next update will compute a new event time.
@@ -821,6 +846,7 @@ function performConcurrentWorkOnRoot(root) {
   // Flush any pending passive effects before deciding which lanes to work on,
   // in case they schedule additional work.
   const originalCallbackNode = root.callbackNode;
+  // 如果有passive副作用，这步操作将在flushPassiveEffects中执行
   const didFlushPassiveEffects = flushPassiveEffects();
   if (didFlushPassiveEffects) {
     // Something in the passive effect phase may have canceled the current task.
@@ -837,15 +863,22 @@ function performConcurrentWorkOnRoot(root) {
 
   // Determine the next expiration time to work on, using the fields stored
   // on the root.
+  // 计算出下一个泳道nextLanes
+  // 这里可能会将当前正在渲染的wipLanes中断，切换到nextLanes，异步渲染???
   let lanes = getNextLanes(
     root,
     root === workInProgressRoot ? workInProgressRootRenderLanes : NoLanes,
   );
+  // 如果下一个泳道为空，也就是下面没有渲染任务，直接返回null
   if (lanes === NoLanes) {
     // Defensive coding. This is never expected to happen.
     return null;
   }
 
+  // renderRootSync的异步版本，可中断
+  // 核心逻辑workLoopConcurrent，每个循环（也就是更新每一个workInProgress）都会判断是否需要移交控制权给浏览器，以此实现时间切片
+  // 中断后返回 RootIncomplete
+  // 没有中断直接返回 workInProgressRootExitStatus
   let exitStatus = renderRootConcurrent(root, lanes);
 
   if (
@@ -862,7 +895,10 @@ function performConcurrentWorkOnRoot(root) {
     // So we'll throw out the current work and restart.
     prepareFreshStack(root, NoLanes);
   } else if (exitStatus !== RootIncomplete) {
+    // 没有异步中断
+
     if (exitStatus === RootErrored) {
+      // 出错
       executionContext |= RetryAfterError;
 
       // If an error occurred during hydration,
@@ -892,21 +928,29 @@ function performConcurrentWorkOnRoot(root) {
 
     // We now have a consistent tree. The next step is either to commit it,
     // or, if something suspended, wait to commit it after a timeout.
+    // 走到这里，说明已经完成了整个fiber树的render，下面就是提交
     const finishedWork: Fiber = (root.current.alternate: any);
     root.finishedWork = finishedWork;
     root.finishedLanes = lanes;
+    // 提交
     finishConcurrentRender(root, exitStatus, lanes);
   }
 
+  // 计算下一批lanes的优先级情况
   ensureRootIsScheduled(root, now());
+  // performConcurrentWorkOnRoot是newTask的callback，会被推入taskQueue/timerQueue
+  // performConcurrentWorkOnRoot继续返回performConcurrentWorkOnRoot的话，会进入异步更新循环
+  // 如果返回null，就结束异步更新循环
   if (root.callbackNode === originalCallbackNode) {
     // The task node scheduled for this root is the same one that's
     // currently executed. Need to return a continuation.
+    // 这是什么情况，导致返回performConcurrentWorkOnRoot触发异步更新循环???
     return performConcurrentWorkOnRoot.bind(null, root);
   }
   return null;
 }
 
+// 整个fiber树完成更新，进行提交
 function finishConcurrentRender(root, exitStatus, lanes) {
   switch (exitStatus) {
     case RootIncomplete:
@@ -1010,6 +1054,10 @@ function finishConcurrentRender(root, exitStatus, lanes) {
     }
     case RootCompleted: {
       // The work completed. Ready to commit.
+      // 提交fiberRoot
+      // 这里会走三个阶段before mutation  mutation  layout
+      // 更新dom，触发生命周期componentWillUnmounted componentDidMount componentDidUpdate
+      // 三个阶段走完，就停止调度，让浏览器绘制页面
       commitRoot(root);
       break;
     }
@@ -1033,6 +1081,7 @@ function markRootSuspended(root, suspendedLanes) {
 // through Scheduler
 // 从root开始执行同步工作，完成之后提交
 // 执行renderRootSync，拿到返回值exitStatus，然后提交root
+// 这里renderRootSync内部的workLoopSync是同步执行的，没有中断逻辑
 function performSyncWorkOnRoot(root) {
   invariant(
     (executionContext & (RenderContext | CommitContext)) === NoContext,
@@ -1055,6 +1104,7 @@ function performSyncWorkOnRoot(root) {
     lanes = workInProgressRootRenderLanes;
     // performUnitOfWork直到全局workInProgres为null
     // 返回workInProgressRootExitStatus
+    // 这里renderRootSync内部的workLoopSync是同步执行的，没有中断逻辑
     exitStatus = renderRootSync(root, lanes);
     if (
       includesSomeLane(
@@ -1200,7 +1250,7 @@ function flushPendingDiscreteUpdates() {
     // immediately flush them.
     const roots = rootsWithPendingDiscreteUpdates;
     rootsWithPendingDiscreteUpdates = null;
-    roots.forEach(root => {
+    roots.forEach((root) => {
       markDiscreteUpdatesExpired(root);
       ensureRootIsScheduled(root, now());
     });
@@ -1209,7 +1259,7 @@ function flushPendingDiscreteUpdates() {
   flushSyncCallbackQueue();
 }
 
-export function batchedUpdates<A, R>(fn: A => R, a: A): R {
+export function batchedUpdates<A, R>(fn: (A) => R, a: A): R {
   const prevExecutionContext = executionContext;
   executionContext |= BatchedContext;
   try {
@@ -1224,7 +1274,7 @@ export function batchedUpdates<A, R>(fn: A => R, a: A): R {
   }
 }
 
-export function batchedEventUpdates<A, R>(fn: A => R, a: A): R {
+export function batchedEventUpdates<A, R>(fn: (A) => R, a: A): R {
   const prevExecutionContext = executionContext;
   executionContext |= EventContext;
   try {
@@ -1301,7 +1351,7 @@ export function unbatchedUpdates<A, R>(fn: (a: A) => R, a: A): R {
   }
 }
 
-export function flushSync<A, R>(fn: A => R, a: A): R {
+export function flushSync<A, R>(fn: (A) => R, a: A): R {
   const prevExecutionContext = executionContext;
   if ((prevExecutionContext & (RenderContext | CommitContext)) !== NoContext) {
     if (__DEV__) {
@@ -1589,6 +1639,7 @@ export function renderHasNotSuspendedYet(): boolean {
 }
 
 // performUnitOfWork直到全局workInProgres为null
+// 这里的workLoopSync是同步执行的，没有中断逻辑
 // 返回workInProgressRootExitStatus
 // root  fiberRoot
 // lanes  workInProgressRootRenderLanes
@@ -1632,6 +1683,7 @@ function renderRootSync(root: FiberRoot, lanes: Lanes) {
     try {
       // workLoopSync就是render的核心逻辑
       // 会一直performUnitOfWork直到全局workInProgres为null，然后这边跳出循环
+      // 这里的workLoopSync是同步执行的，没有中断逻辑
       workLoopSync();
       break;
     } catch (thrownValue) {
@@ -1689,19 +1741,32 @@ function workLoopSync() {
   }
 }
 
+// renderRootSync的异步版本，可中断
+// 核心逻辑workLoopConcurrent，每个循环（也就是更新每一个workInProgress）都会判断是否需要移交控制权给浏览器，以此实现时间切片
+// 中断后返回 RootIncomplete
+// 没有中断直接返回 workInProgressRootExitStatus
 function renderRootConcurrent(root: FiberRoot, lanes: Lanes) {
+  // 保存当前执行上下文executionContext，用于之后恢复
   const prevExecutionContext = executionContext;
+  // 更新执行上下文executionContext
   executionContext |= RenderContext;
+  // 暂存之前的dispatcher，用于之后恢复
+  // ReactCurrentDispatcher.current有就取，没有就取ContextOnlyDispatcher
   const prevDispatcher = pushDispatcher();
 
   // If the root or lanes have changed, throw out the existing stack
   // and prepare a fresh one. Otherwise we'll continue where we left off.
+  // root或者lanes发生了变化，当前要更新的节点并非是队列中要更新的节点，也就是说被新的高优先级的任务给打断了
+  // workInProgressRoot 接下来要更新的节点
+  // workInProgressRootRenderLanes 接下来更新节点的过期时间
   if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
     resetRenderTimer();
     prepareFreshStack(root, lanes);
     startWorkOnPendingInteractions(root, lanes);
   }
 
+  // 暂存之前的interactions交互，用于之后恢复
+  // 更新当前interactions交互
   const prevInteractions = pushInteractions(root);
 
   if (__DEV__) {
@@ -1710,24 +1775,30 @@ function renderRootConcurrent(root: FiberRoot, lanes: Lanes) {
     }
   }
 
+  // 标记render开始
   if (enableSchedulingProfiler) {
     markRenderStarted(lanes);
   }
 
   do {
     try {
+      // workLoopSync的异步版本，可中断
       workLoopConcurrent();
       break;
     } catch (thrownValue) {
       handleError(root, thrownValue);
     }
   } while (true);
+  // 重置上下文依赖
   resetContextDependencies();
+  // 恢复之前的interactions交互
   if (enableSchedulerTracing) {
     popInteractions(((prevInteractions: any): Set<Interaction>));
   }
 
+  // 恢复之前的dispatcher
   popDispatcher(prevDispatcher);
+  // 恢复为之前的执行上下文
   executionContext = prevExecutionContext;
 
   if (__DEV__) {
@@ -1737,19 +1808,23 @@ function renderRootConcurrent(root: FiberRoot, lanes: Lanes) {
   }
 
   // Check if the tree has completed.
+  // 检查整个树是否完成了render，也就是workLoopConcurrent过程中是否发生了中断
   if (workInProgress !== null) {
     // Still work remaining.
+    // 未完成，标记 --render-yield，返回 RootIncomplete
     if (enableSchedulingProfiler) {
       markRenderYielded();
     }
     return RootIncomplete;
   } else {
     // Completed the tree.
+    // 已完成，标记 --render-stop，返回 workInProgressRootExitStatus
     if (enableSchedulingProfiler) {
       markRenderStopped();
     }
 
     // Set this to null to indicate there's no in-progress render.
+    // 清空workInProgressRoot和workInProgressRootRenderLanes
     workInProgressRoot = null;
     workInProgressRootRenderLanes = NoLanes;
 
@@ -1759,6 +1834,9 @@ function renderRootConcurrent(root: FiberRoot, lanes: Lanes) {
 }
 
 /** @noinline */
+// workLoopSync 的异步版本，可中断
+// 更新每一个workInProgress时都会做判断，实现时间切片更新
+// 中断之后 workInProgress 会保持有值的状态，等待下一个切片更新
 function workLoopConcurrent() {
   // Perform work until Scheduler asks us to yield
   while (workInProgress !== null && !shouldYield()) {
@@ -2163,7 +2241,7 @@ function commitRootImpl(root, renderPriorityLevel) {
   // pending time is whatever is left on the root fiber.
   // 合并rootFiber.lanes和rootFiber.childLanes，更新为remainingLanes
   let remainingLanes = mergeLanes(finishedWork.lanes, finishedWork.childLanes);
-  
+
   // 保留fiberRoot.pendingLanes中的remainingLanes
   // 更新suspendedLanes pingedLanes expiredLanes mutableReadLanes entangledLanes
   // 其他的lanes做清空处理
@@ -2256,7 +2334,7 @@ function commitRootImpl(root, renderPriorityLevel) {
     // getSnapshotBeforeUpdate is called.
     // 第一个阶段是before mutation
     // 这个阶段会在mutate之后读取host tree的状态，这里会调用getSnapshotBeforeUpdate
-    
+
     // ???
     focusedInstanceHandle = prepareForCommit(root.containerInfo);
     shouldFireAfterActiveInstanceBlur = false;
@@ -2486,7 +2564,7 @@ function commitRootImpl(root, renderPriorityLevel) {
       // Wait to do this until after remaining work has been scheduled,
       // so that we don't prematurely signal complete for interactions when there's e.g. hidden work.
       // 没有passive副作用，就直接完成pending interactions，否则等到flush完passive effects之后
-      
+
       // 完成FfiberRoot.pendingInteractionMap中的所有scheduledInteractions
       finishPendingInteractions(root, lanes);
     }
@@ -2684,7 +2762,7 @@ function commitMutationEffects(
     switch (primaryFlags) {
       case Placement: {
         // 处理Placement副作用
-        
+
         // 将nextEffect对应的dom插入到dom结构中的对应位置
         commitPlacement(nextEffect);
         // Clear the "placement" from effect tag so that we know that this is
@@ -3839,7 +3917,7 @@ function scheduleInteractions(
     const pendingInteractionMap = root.pendingInteractionMap;
     const pendingInteractions = pendingInteractionMap.get(lane);
     if (pendingInteractions != null) {
-      interactions.forEach(interaction => {
+      interactions.forEach((interaction) => {
         if (!pendingInteractions.has(interaction)) {
           // Update the pending async work count for previously unscheduled interaction.
           // 更新之前未调度的interaction的__count
@@ -3853,7 +3931,7 @@ function scheduleInteractions(
 
       // Update the pending async work count for the current interactions.
       // 更新当前的interaction的__count
-      interactions.forEach(interaction => {
+      interactions.forEach((interaction) => {
         interaction.__count++;
       });
     }
@@ -3894,7 +3972,7 @@ function startWorkOnPendingInteractions(root: FiberRoot, lanes: Lanes) {
   const interactions: Set<Interaction> = new Set();
   root.pendingInteractionMap.forEach((scheduledInteractions, scheduledLane) => {
     if (includesSomeLane(lanes, scheduledLane)) {
-      scheduledInteractions.forEach(interaction =>
+      scheduledInteractions.forEach((interaction) =>
         interactions.add(interaction),
       );
     }
@@ -3960,7 +4038,7 @@ function finishPendingInteractions(root, committedLanes) {
       if (!includesSomeLane(remainingLanesAfterCommit, lane)) {
         pendingInteractionMap.delete(lane);
 
-        scheduledInteractions.forEach(interaction => {
+        scheduledInteractions.forEach((interaction) => {
           interaction.__count--;
 
           if (subscriber !== null && interaction.__count === 0) {
@@ -4144,7 +4222,7 @@ export function act(callback: () => Thenable<mixed>): Thenable<void> {
               }
             });
           },
-          err => {
+          (err) => {
             onDone();
             reject(err);
           },

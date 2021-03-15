@@ -240,7 +240,6 @@ function findHostInstanceWithWarning(
   return findHostInstance(component);
 }
 
-
 // 内部调用createFiberRoot方法返回一个fiberRoot实例
 export function createContainer(
   containerInfo: Container, // 生成fiberRoot时对应document.getElementById('root')
@@ -263,8 +262,7 @@ export function updateContainer(
   if (__DEV__) {
     onScheduleRoot(container, element);
   }
-  // 获取当前更新的fiber对象rootFiber
-  // 这个是workInProgress???
+  // 获取当前更新的fiber对象rootFiber currentFiber
   const current = container.current;
   // 获取eventTime（程序运行到此刻的时间戳），React会基于它进行更新优先级排序
   const eventTime = requestEventTime();
@@ -341,6 +339,10 @@ export function updateContainer(
   // 开始react异步渲染的核心，任务调度更新  React Scheduler
   // 内部核心逻辑都是performSyncWorkOnRoot
   // performSyncWorkOnRoot 先执行同步工作renderRootSync，然后提交root
+  // 将performSyncWorkOnRoot作为callback推入内部同步队列syncQueue
+  // 如果这个callback是第一个，将flushSyncCallbackQueueImpl作为callback设置immediateQueueCallbackNode，直接在next tick调度它
+  // 哪里设置了next tick的调度逻辑???
+  // 执行流程是flushWork => flushSyncCallbackQueueImpl => performSyncWorkOnRoot
   scheduleUpdateOnFiber(current, lane, eventTime);
   // 经过一系列更新之后，我们将刚开始创建的lane返回
   return lane;
@@ -369,7 +371,7 @@ export function getPublicRootInstance(
     return null;
   }
   switch (containerFiber.child.tag) {
-    case HostComponent: 
+    case HostComponent:
       // 原生dom组件
       // 返回containerFiber.child.stateNode
       return getPublicInstance(containerFiber.child.stateNode);
@@ -490,7 +492,7 @@ export function findHostInstanceWithNoPortals(
   return hostFiber.stateNode;
 }
 
-let shouldSuspendImpl = fiber => false;
+let shouldSuspendImpl = (fiber) => false;
 
 export function shouldSuspend(fiber: Fiber): boolean {
   return shouldSuspendImpl(fiber);
@@ -717,7 +719,7 @@ if (__DEV__) {
     scheduleUpdateOnFiber(fiber, SyncLane, NoTimestamp);
   };
 
-  setSuspenseHandler = (newShouldSuspendImpl: Fiber => boolean) => {
+  setSuspenseHandler = (newShouldSuspendImpl: (Fiber) => boolean) => {
     shouldSuspendImpl = newShouldSuspendImpl;
   };
 }

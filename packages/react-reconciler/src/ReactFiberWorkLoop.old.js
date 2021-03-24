@@ -944,7 +944,7 @@ function performConcurrentWorkOnRoot(root) {
   if (root.callbackNode === originalCallbackNode) {
     // The task node scheduled for this root is the same one that's
     // currently executed. Need to return a continuation.
-    // 这是什么情况，导致返回performConcurrentWorkOnRoot触发异步更新循环???
+    // 更新过程中断，需要返回performConcurrentWorkOnRoot函数，workLoop中就不会将performConcurrentWorkOnRoot对应的newTask移除，就可以实现时间分片异步更新了
     return performConcurrentWorkOnRoot.bind(null, root);
   }
   return null;
@@ -1103,8 +1103,9 @@ function performSyncWorkOnRoot(root) {
     // 有lane过期了，优先更新
     lanes = workInProgressRootRenderLanes;
     // performUnitOfWork直到全局workInProgres为null
+    // 整个performUnitOfWork的工作是 dom diff => 更新workInProgress.stateNode/设置workInProgress.updateQueue等到后续提交的时候更新
+    // 这里的workLoopSync是同步执行的，没有中断逻辑
     // 返回workInProgressRootExitStatus
-    // 这里renderRootSync内部的workLoopSync是同步执行的，没有中断逻辑
     exitStatus = renderRootSync(root, lanes);
     if (
       includesSomeLane(
@@ -1169,8 +1170,9 @@ function performSyncWorkOnRoot(root) {
 
   // We now have a consistent tree. Because this is a sync render, we
   // will commit it even if something suspended.
-  // 到了这一步一个完整的fiber树就构建完毕，此时就算有其他suspense操作
-  // 程序依然会提交fiber树
+  // 到了这一步一个完整的fiber树就构建完毕
+  // 每个单元任务workInProgress已经完成了 dom diff 和 workInProgress.stateNode/workInProgress.updateQueue
+  // 此时就算有其他suspense操作，程序依然会提交fiber树
   const finishedWork: Fiber = (root.current.alternate: any); // rootFiber
   root.finishedWork = finishedWork; // rootFiber
   root.finishedLanes = lanes; // nextLanes
@@ -1639,6 +1641,7 @@ export function renderHasNotSuspendedYet(): boolean {
 }
 
 // performUnitOfWork直到全局workInProgres为null
+// 整个performUnitOfWork的工作是 dom diff => 更新workInProgress.stateNode/设置workInProgress.updateQueue等到后续提交的时候更新
 // 这里的workLoopSync是同步执行的，没有中断逻辑
 // 返回workInProgressRootExitStatus
 // root  fiberRoot
@@ -1683,6 +1686,7 @@ function renderRootSync(root: FiberRoot, lanes: Lanes) {
     try {
       // workLoopSync就是render的核心逻辑
       // 会一直performUnitOfWork直到全局workInProgres为null，然后这边跳出循环
+      // 整个performUnitOfWork的工作是 dom diff => 更新workInProgress.stateNode/设置workInProgress.updateQueue等到后续提交的时候更新
       // 这里的workLoopSync是同步执行的，没有中断逻辑
       workLoopSync();
       break;
@@ -1734,9 +1738,11 @@ function renderRootSync(root: FiberRoot, lanes: Lanes) {
 /** @noinline */
 // render的核心逻辑
 // 会一直performUnitOfWork直到全局workInProgres为null，然后这边跳出循环
+// 整个performUnitOfWork的工作是 dom diff => 更新workInProgress.stateNode/设置workInProgress.updateQueue等到后续提交的时候更新
 function workLoopSync() {
   // Already timed out, so perform work without checking if we need to yield.
   while (workInProgress !== null) {
+    // 整个performUnitOfWork的工作是 dom diff => 更新workInProgress.stateNode/设置workInProgress.updateQueue等到后续提交的时候更新
     performUnitOfWork(workInProgress);
   }
 }
@@ -1839,13 +1845,19 @@ function renderRootConcurrent(root: FiberRoot, lanes: Lanes) {
 // 中断之后 workInProgress 会保持有值的状态，等待下一个切片更新
 function workLoopConcurrent() {
   // Perform work until Scheduler asks us to yield
+  // shouldYield 返回 getCurrentTime() >= deadline，表示超时了，需要中断更新并移交控制权给浏览器
   while (workInProgress !== null && !shouldYield()) {
     performUnitOfWork(workInProgress);
   }
 }
 
 // render的核心逻辑
-// 执行每个unitOfWork(workInProgress)的render工作
+// 执行每个单元任务unitOfWork(workInProgress)的render工作
+// 核心逻辑 beginWork => completeUnitOfWork => 设置下一个单元任务workInProgress => 循环直至没有下一个单元任务
+// beginWork 内部核心逻辑是reconcileChildren，也就是dom diff，更新workInProgress.child为下一个单元工作
+// beginWork 过程中会对newChild(如果是数组)中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
+// completeUnitOfWork 内部核心逻辑是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+// 整个performUnitOfWork的工作是 dom diff => 更新workInProgress.stateNode/设置workInProgress.updateQueue等到后续提交的时候更新
 function performUnitOfWork(unitOfWork: Fiber): void {
   // The current, flushed, state of this fiber is the alternate. Ideally
   // nothing should rely on this, but relying on it here means that we don't
@@ -1859,6 +1871,9 @@ function performUnitOfWork(unitOfWork: Fiber): void {
   if (enableProfilerTimer && (unitOfWork.mode & ProfileMode) !== NoMode) {
     // 记录开始时间
     startProfilerTimer(unitOfWork);
+    // beginWork返回的下一个单元任务next指向unitOfWork的child，也就是第一个子fiber
+    // 核心逻辑是reconcileChildren，也就是dom diff，更新workInProgress.child为下一个单元工作
+    // 这里会对newChild(如果是数组)中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
     next = beginWork(current, unitOfWork, subtreeRenderLanes);
     // 记录结束时间，更新unitOfWork的render持续时间
     stopProfilerTimerIfRunningAndRecordDelta(unitOfWork, true);
@@ -1869,18 +1884,31 @@ function performUnitOfWork(unitOfWork: Fiber): void {
   resetCurrentDebugFiberInDEV();
   // unitOfWork render完毕，将当前props更新为新的props
   unitOfWork.memoizedProps = unitOfWork.pendingProps;
+  // next指向unitOfWork.child，也就是第一个子fiber
+  // next存在，设置workInProgress
+  // next不存在，完成当前单元任务，也就是dom diff并更新到真实dom上，设置workInProgress为unitOfWork.sibling => return => return.sibling
+  // 两种情况下都没有下一个单元任务设置workInProgress，表示所有单元任务完成，结束循环，结束workLoopSync
   if (next === null) {
     // If this doesn't spawn new work, complete the current work.
+    // beginWork中找不到下一个单元任务next（也就是第一个子fiber，表示不存在children），就对当前单元任务unitOfWork进行completeUnitOfWork
+    // completeUnitOfWork过程中会找到下一个单元任务赋值到workInProgress，循环继续执行performUnitOfWork
+    // 如果completeUnitOfWork过程中没有下一个单元任务了，那就结束循环，结束workLoopSync
+    // 内部核心逻辑是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+    // 按照sibling => ... => return => return.sibling => ... 的顺序
+    // 走到这里的unitOfWork，表示已经没有children了，所以这里只取sibling和return
     completeUnitOfWork(unitOfWork);
   } else {
+    // beginWork中找到了下一个单元任务next（也就是第一个子fiber，表示存在children），直接将next赋值到workInProgress，循环继续执行performUnitOfWork
     workInProgress = next;
   }
 
   ReactCurrentOwner.current = null;
 }
 
-// 按照child => sibling => return.sibling => return.sibling.child => ... 的顺序依次complete
-// 完成当前节点的 work，然后移动到兄弟节点，重复该操作，当没有更多兄弟节点时，返回至父节点
+// 完成当前单元任务unitOfWork，然后设置下一个单元任务workInProgress，循环继续执行performUnitOfWork
+// 内部核心逻辑是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+// 按照sibling => ... => return => return.sibling => ... 的顺序
+// 走到这里的unitOfWork，表示已经没有children了，所以这里只取sibling和return
 function completeUnitOfWork(unitOfWork: Fiber): void {
   // Attempt to complete the current unit of work, then move to the next
   // sibling. If there are no more siblings, return to the parent fiber.
@@ -1906,7 +1934,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         !enableProfilerTimer ||
         (completedWork.mode & ProfileMode) === NoMode
       ) {
-        // 将completedWork转换为真实dom
+        // 将completedWork转换为真实dom，返回下一个单元任务next
         next = completeWork(current, completedWork, subtreeRenderLanes);
       } else {
         // render持续时间累加上completeWork的时间得到最新的render持续时间
@@ -1914,6 +1942,9 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         // 记录开始时间
         startProfilerTimer(completedWork);
         // 将completedWork转换为真实dom
+        // 这里的工作是处理与dom相关的更新替换，将workInProgress转变为真实dom
+        // 让workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+        // 原生dom fiber还会diff props初始化dom属性
         next = completeWork(current, completedWork, subtreeRenderLanes);
         // Update render duration assuming we didn't error.
         // 记录结束时间，更新render持续时间

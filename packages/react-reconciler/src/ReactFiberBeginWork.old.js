@@ -249,6 +249,7 @@ export function reconcileChildren(
     // 替换，currentFiber为null
     // mountChildFibers = ChildReconciler(false)，也就是reconcileChildFibers函数
     // 生成workInProgress的第一个子workInProgress
+    // 这里会对newChild(如果是数组)中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
     workInProgress.child = mountChildFibers(
       workInProgress,
       null,
@@ -265,6 +266,7 @@ export function reconcileChildren(
     // 更新，currentFiber复用原来的
     // reconcileChildFibers = ChildReconciler(true)，也就是reconcileChildFibers函数
     // 生成workInProgress的第一个子workInProgress
+    // 这里会对newChild(如果是数组)中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
     workInProgress.child = reconcileChildFibers(
       workInProgress,
       current.child,
@@ -3253,7 +3255,7 @@ function remountFiber(
 }
 
 // 开始当前单元工作，返回下一个单元工作
-// 这里的核心逻辑是reconcileChildren，也就是dom diff，更新workInProgress.child作用下一个单元工作
+// 这里的核心逻辑是reconcileChildren，也就是dom diff，更新workInProgress.child为下一个单元工作
 // 如果是新创建，则没有对应currentFiber child sibling
 // 如果是复用，则没有对应sibling
 function beginWork(
@@ -3610,7 +3612,7 @@ function beginWork(
       return updateHostComponent(current, workInProgress, renderLanes);
     case HostText:
       // 文本组件
-      // 不做处理，返回null，不会影响下一个单元工作???
+      // 不做处理，返回null，表示没有子fiber（文本fiber没有子fiber）
       return updateHostText(current, workInProgress);
     case SuspenseComponent:
       return updateSuspenseComponent(current, workInProgress, renderLanes);

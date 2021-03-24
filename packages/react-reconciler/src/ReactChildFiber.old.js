@@ -844,6 +844,7 @@ function ChildReconciler(shouldTrackSideEffects) {
   }
 
   // 对children做dom diff，生成新的链表，并返回链表的第一个workInProgress
+  // 这里会对newChildren中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
   function reconcileChildrenArray(
     returnFiber: Fiber, // 父workInProgress
     currentFirstChild: Fiber | null, // 父currentFiber的第一个子fiber
@@ -1449,8 +1450,7 @@ function ChildReconciler(shouldTrackSideEffects) {
   // diff算法的入口函数
   // 根据父workInProgress和父currentFiber对应的第一个子fiber决定复用或新创建
   // 返回第一个子workInProgress
-  // 新创建的只有return指向父workInProgress，没有对应currentFiber child sibling
-  // 复用的也没有sibling
+  // 这里会对newChild(如果是数组)中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
   function reconcileChildFibers(
     returnFiber: Fiber, // 父workInProgress
     currentFirstChild: Fiber | null, // 父currentFiber对应的第一个子fiber

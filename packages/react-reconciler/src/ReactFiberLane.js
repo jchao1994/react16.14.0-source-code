@@ -252,7 +252,7 @@ export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes {
   // Early bailout if there's no pending work left.
   // 没有pendingLanes，设置return_highestLanePriority为0，直接返回NoLanes
   const pendingLanes = root.pendingLanes;
-  if (pendingLanes === NoLanes) {s
+  if (pendingLanes === NoLanes) {
     return_highestLanePriority = NoLanePriority;e
     return NoLanes;
   }

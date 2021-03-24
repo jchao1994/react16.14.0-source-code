@@ -107,7 +107,7 @@ function advanceTimers(currentTime) {
 }
 
 // timerQueue中的timer延时时间到了，会执行这个方法handleTimeout
-// 先将timerQueue中startTime到了的任务更新到taskQueue中
+// 先将timerQueue中startTime到了的任务更新到taskQueue中，如果正在进行taskQueue，那推入进去的timeTask会在最后执行，如果不在进行taskQueue，那就开始新的一轮taskQueue
 // 然后判断taskQueue中是否有任务，有就执行requestHostCallback，next tick就会执行flushWork来处理
 // 如果taskQueue中没有任务，继续处理timerQueue中的任务，取其第一个firstTimer执行requestHostTimeout
 function handleTimeout(currentTime) {
@@ -216,6 +216,7 @@ function workLoop(hasTimeRemaining, initialTime) {
   ) {
     if (
       currentTask.expirationTime > currentTime &&
+      // shouldYieldToHost 返回 getCurrentTime() >= deadline，表示超时了，需要中断更新并移交控制权给浏览器
       (!hasTimeRemaining || shouldYieldToHost())
     ) {
       // This currentTask hasn't expired, and we've reached the deadline.
@@ -223,6 +224,7 @@ function workLoop(hasTimeRemaining, initialTime) {
       // shouldYieldToHost 是否需要移交控制给浏览器，超时/需要重绘为true，否则为false
       break;
     }
+    // 这个callback指向 flushSyncCallbackQueueImpl(同步，内部执行performSyncWorkOnRoot) / performConcurrentWorkOnRoot(异步)
     const callback = currentTask.callback;
     if (typeof callback === 'function') {
       // currentTask有callback，执行callback，并根据didUserCallbackTimeout做相应处理
@@ -238,6 +240,7 @@ function workLoop(hasTimeRemaining, initialTime) {
       currentTime = getCurrentTime();
       // 对didUserCallbackTimeout的task做不同的标记
       // 由于didUserCallbackTimeout的task在前一次已经做了pop处理，所以这里不用做重复处理
+      // performConcurrentWorkOnRoot中断之后会继续返回performConcurrentWorkOnRoot，表示中断，后续时间分片异步更新继续执行performConcurrentWorkOnRoot
       if (typeof continuationCallback === 'function') {
         currentTask.callback = continuationCallback;
         markTaskYield(currentTask, currentTime);

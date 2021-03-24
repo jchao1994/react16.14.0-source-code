@@ -21,10 +21,12 @@ const hasPerformanceNow =
 
 if (hasPerformanceNow) {
   const localPerformance = performance;
+  // 获取从最开始到现在的时间
   getCurrentTime = () => localPerformance.now();
 } else {
   const localDate = Date;
   const initialTime = localDate.now();
+  // 获取从最开始到现在的时间
   getCurrentTime = () => localDate.now() - initialTime;
 }
 
@@ -114,6 +116,7 @@ if (
   // thread, like user events. By default, it yields multiple times per frame.
   // It does not attempt to align with frame boundaries, since most tasks don't
   // need to be frame aligned; for those that do, use requestAnimationFrame.
+  // 每帧的时间设置为5ms
   let yieldInterval = 5;
   let deadline = 0;
 
@@ -196,7 +199,8 @@ if (
       // Yield after `yieldInterval` ms, regardless of where we are in the vsync
       // cycle. This means there's always time remaining at the beginning of
       // the message event.
-      // 当前时间 加上 每帧的时间，即为超时时间
+      // 当前时间(从最开始到现在的时间) 加上 每帧留给react的时间(一般为5ms)，即为超时时间
+      // 也就是定义超时时间deadline为当前的基础上加上 每帧留给react的时间(一般为5ms)
       // 这个超时时间用在shouldYieldToHost中，用于判断是否需要移交控制给浏览器
       deadline = currentTime + yieldInterval;
       const hasTimeRemaining = true;
@@ -215,6 +219,12 @@ if (
           // of the preceding one.
           // taskQueue被中断，继续触发performWorkUntilDeadline
           // 这里会一直调用 scheduledHostCallback => flushWork => workLoop，直到异步更新完taskQueue中的所有任务
+          // 具体流程
+          // performWorkUntilDeadline => scheduledHostCallback(也就是flushWork)
+          // => workLoop(遍历执行taskQueue中的任务，也就是performConcurrentWorkOnRoot)
+          // => renderRootConcurrent => workLoopConcurrent(这里就会判断是否需要移交控制权，然后决定是否执行performUnitOfWork)
+          // => 如果中断，taskQueue中的performConcurrentWorkOnRoot对应的task任务不会清除，同时跳出更新，返回true到hasMoreWork => port.postMessage(null) 宏任务 => 触发下一次performWorkUntilDeadline => ...
+          //    如果没有中断，返回false到hasMoreWork，结束taskQueue中的更新。如果有timeQueue，会在延时到了之后推入taskQueue开始更新
           port.postMessage(null);
         }
       } catch (error) {
@@ -233,8 +243,17 @@ if (
     needsPaint = false;
   };
 
+  // 创建一个新的消息通道，并通过它的两个MessagePort属性发送数据
+  // 宏任务
   const channel = new MessageChannel();
   const port = channel.port2;
+  // onmessage的执行实际很重要
+  // react给单次performWorkUntilDeadline的时间只有5ms，一旦超过5ms，必须移交控制权给浏览器，浏览器处理requestAnimationFrame、页面渲染绘制
+  // 等到浏览器自己的工作完成了，会执行宏任务，也就是下一个performWorkUntilDeadline
+  // react用这种方式模拟了requestIdleCallback(由于兼容性问题没有采用)
+  // 保证给浏览器单帧的工作时间理论上是 1000/60-5=11.67ms(60Hz刷新率)
+  // 但是无法保证单次performWorkUntilDeadline中的最后一个单元任务的结束时间会超过5ms多久，理论上切成单元任务之后不会超出5ms很多
+  // 而留给浏览器的11.67ms其实是有余量的(浏览器不需要这么久)，所有理论上是不会造成页面卡顿
   channel.port1.onmessage = performWorkUntilDeadline;
 
   // 设置requestHostCallback，并触发performWorkUntilDeadline

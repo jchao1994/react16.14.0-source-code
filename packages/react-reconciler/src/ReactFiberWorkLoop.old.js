@@ -1856,8 +1856,9 @@ function workLoopConcurrent() {
 // 核心逻辑 beginWork => completeUnitOfWork => 设置下一个单元任务workInProgress => 循环直至没有下一个单元任务
 // beginWork 内部核心逻辑是reconcileChildren，也就是dom diff，更新workInProgress.child为下一个单元工作
 // beginWork 过程中会对newChild(如果是数组)中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
-// completeUnitOfWork 内部核心逻辑是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
-// 整个performUnitOfWork的工作是 dom diff => 更新workInProgress.stateNode/设置workInProgress.updateQueue等到后续提交的时候更新
+// completeUnitOfWork 内部核心逻辑一是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+// completeUnitOfWork 内部核心逻辑二是更新父workInProgress的effect list链表，将当前unitOfWork(也就是completedWork)的effect list(只包含其children)以及自身(如有副作用)添加到父workInProgress的effect list链表的最后
+// 整个performUnitOfWork的工作是 dom diff => 更新workInProgress.stateNode/设置workInProgress.updateQueue等到后续提交的时候更新 => 更新父workInProgress的effect list链表
 function performUnitOfWork(unitOfWork: Fiber): void {
   // The current, flushed, state of this fiber is the alternate. Ideally
   // nothing should rely on this, but relying on it here means that we don't
@@ -1893,7 +1894,8 @@ function performUnitOfWork(unitOfWork: Fiber): void {
     // beginWork中找不到下一个单元任务next（也就是第一个子fiber，表示不存在children），就对当前单元任务unitOfWork进行completeUnitOfWork
     // completeUnitOfWork过程中会找到下一个单元任务赋值到workInProgress，循环继续执行performUnitOfWork
     // 如果completeUnitOfWork过程中没有下一个单元任务了，那就结束循环，结束workLoopSync
-    // 内部核心逻辑是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+    // 内部核心逻辑一是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+    // 内部核心逻辑二是更新父workInProgress的effect list链表，将当前unitOfWork(也就是completedWork)的effect list(只包含其children)以及自身(如有副作用)添加到父workInProgress的effect list链表的最后
     // 按照sibling => ... => return => return.sibling => ... 的顺序
     // 走到这里的unitOfWork，表示已经没有children了，所以这里只取sibling和return
     completeUnitOfWork(unitOfWork);
@@ -1906,7 +1908,8 @@ function performUnitOfWork(unitOfWork: Fiber): void {
 }
 
 // 完成当前单元任务unitOfWork，然后设置下一个单元任务workInProgress，循环继续执行performUnitOfWork
-// 内部核心逻辑是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+// 内部核心逻辑一是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+// 内部核心逻辑二是更新父workInProgress的effect list链表，将当前unitOfWork(也就是completedWork)的effect list(只包含其children)以及自身(如有副作用)添加到父workInProgress的effect list链表的最后
 // 按照sibling => ... => return => return.sibling => ... 的顺序
 // 走到这里的unitOfWork，表示已经没有children了，所以这里只取sibling和return
 function completeUnitOfWork(unitOfWork: Fiber): void {
@@ -1965,7 +1968,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
       // treeBaseDuration completeWork时间
       resetChildLanes(completedWork);
 
-      // 更新父workInProgress的update队列
+      // 更新父workInProgress的effect队列
       if (
         returnFiber !== null &&
         // Do not append effects to parents if a sibling failed to complete
@@ -1976,8 +1979,9 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         // side-effect order.
         // 父workInProgress未完成
 
-        // 父workInProgress没有update队列，把completedWork的整个update队列给到父workInProgress
-        // 父workInProgress有update队列，就把completedWork的lastEffect给到父workInProgress的lastEffect
+        // 将completedWork的effect list(这里只包含children的，不包含自身，自身在下面做单独处理)追加到父workInProgress的effect list的最后
+        // 父workInProgress没有effect list队列，把completedWork的整个effect list队列给到父workInProgress
+        // 父workInProgress有effect list队列，就把completedWork的lastEffect给到父workInProgress的lastEffect
         if (returnFiber.firstEffect === null) {
           returnFiber.firstEffect = completedWork.firstEffect;
         }
@@ -2002,6 +2006,8 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         // committed.
         // 跳过NoWork和PerformedWork
         // PerformedWork是用来被React DevTools读取的，不用被commit
+        // 将completedWork自身追加到父workInProgress的effect list的最后(如果completedWork自身有副作用，通过 flags > PerformedWork 判断)
+        // 这步结束，完成completedWork的effect list(也就是其children的副作用链表)以及自身(如有副作用)添加到父workInProgress的effect list的最后
         if (flags > PerformedWork) {
           // 父workInProgress没有update队列，把completedWork作为父workInProgress的整个update队列
           //    这种情况是父workInProgress和completedWork都没有update队列
@@ -2308,6 +2314,8 @@ function commitRootImpl(root, renderPriorityLevel) {
   // Get the list of effects.
   let firstEffect;
   // 更新effect list队列，用于之后的三个阶段的遍历
+  // 这里主要是将自身添加到effect单链表最后(如果自身有副作用)，在这之前，effect单链表只保存其有副作用更新的children
+  // effect list存储了有副作用的fiber，也就是需要更新dom的fiber
   if (finishedWork.flags > PerformedWork) {
     // A fiber's effect list consists only of its children, not itself. So if
     // the root has an effect, we need to add it to the end of the list. The
@@ -2330,7 +2338,7 @@ function commitRootImpl(root, renderPriorityLevel) {
 
   if (firstEffect !== null) {
     // 有effect，需要更新
-    // 这里会走三个阶段before mutation  mutation  layout
+    // 这里会对effect list中的每一个fiber都走三个阶段before mutation  mutation  layout
     // 更新dom，触发生命周期componentWillUnmounted componentDidMount componentDidUpdate
     // 三个阶段走完，就停止调度，让浏览器绘制页面
 
@@ -2498,6 +2506,10 @@ function commitRootImpl(root, renderPriorityLevel) {
     // Tell Scheduler to yield at the end of the frame, so the browser has an
     // opportunity to paint.
     // 在这一帧结束停止调度，浏览器就可以开始paint页面了
+    // 设置needsPaint为true，表示需要浏览器绘制页面
+    // 会在下一次调用shouldYieldToHost(workLoopConcurrent内部循环判断)，
+    // 也就是当前帧超时之后，react会中断更新，通过port.postMessage提交一个新的宏任务，这个宏任务用于触发下一个时间分片的更新
+    // 这个宏任务会在 下一帧浏览器执行完自己工作之后(这里包括浏览器的页面绘制，也就是绘制这里effect list产生的副作用) 执行
     requestPaint();
 
     // 恢复之前的交互interactions

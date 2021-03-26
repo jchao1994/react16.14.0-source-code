@@ -276,8 +276,8 @@ function resolveLazyType<T, P>(
 // live outside of this function.
 // shouldTrackSideEffects  true——更新复用  false——替换新的
 function ChildReconciler(shouldTrackSideEffects) {
-  // 标记childToDelete为需要删除的fiber，并放在returnFiber的最后一个update上
-  // 在执行到childToDelete对应的update时，将其移除
+  // 标记childToDelete为需要删除的fiber，并放在returnFiber的最后一个effect上
+  // 在执行到childToDelete对应的effect时，将其移除
   function deleteChild(returnFiber: Fiber, childToDelete: Fiber): void {
     if (!shouldTrackSideEffects) {
       // Noop.
@@ -291,23 +291,26 @@ function ChildReconciler(shouldTrackSideEffects) {
     // returnFiber的最后一个update
     const last = returnFiber.lastEffect;
     if (last !== null) {
-      // 有update队列，将childToDelete设置为最后一个update
+      // 有effect队列，将childToDelete设置为最后一个effect
       last.nextEffect = childToDelete;
       returnFiber.lastEffect = childToDelete;
     } else {
-      // 没有update队列，将childToDelete设置为唯一的一个update
+      // 没有effect队列，将childToDelete设置为唯一的一个effect
       returnFiber.firstEffect = returnFiber.lastEffect = childToDelete;
     }
-    // childToDelete为最后一个update，自然没有nextEffect
+    // childToDelete为最后一个effect，自然没有nextEffect
     childToDelete.nextEffect = null;
-    // 当执行到childToDelete这个update时，根据这个Deletion做删除操作
+    // 当执行到childToDelete这个effect时，根据这个Deletion做删除操作
+    // 设置这个flags，表示当前fiber(也就是childToDelete)有副作用，需要添加到自身effect list的最后
     childToDelete.flags = Deletion;
   }
 
-  // 标记currentFirstChild及其之后的所有同级fiber为需要删除的fiber，添加到父workInProgress的update队列中
+  // 将父currentFiber中需要删除的第一个fiber及其之后的所有子fiber标记为需要删除的fiber，并添加到父workInProgress的effect list副作用单链表中
+  // 同时给这些需要删除的fiber添加flags，completeUnitOfWork时会将自身添加到父workInProgress的effect list的最后(effect list中的顺序是先子后父)
+  // 等到commit的时候统一进行副作用(也就是dom更新)处理
   function deleteRemainingChildren(
     returnFiber: Fiber, // 父workInProgress
-    currentFirstChild: Fiber | null, // 父currentFiber的第一个子fiber
+    currentFirstChild: Fiber | null, // 父currentFiber中需要删除的第一个子fiber
   ): null {
     if (!shouldTrackSideEffects) {
       // Noop.
@@ -316,7 +319,9 @@ function ChildReconciler(shouldTrackSideEffects) {
 
     // TODO: For the shouldClone case, this could be micro-optimized a bit by
     // assuming that after the first child we've already added everything.
-    // 将父currentFiber的所有子节点标记为需要删除的fiber，并添加到父workInProgress的update队列中
+    // 将父currentFiber中需要删除的第一个fiber及其之后的所有子fiber标记为需要删除的fiber，并添加到父workInProgress的effect list副作用单链表中
+    // 同时给这些需要删除的fiber添加flags，completeUnitOfWork时会将自身添加到父workInProgress的effect list的最后(effect list中的顺序是先子后父)
+    // 等到commit的时候统一进行副作用(也就是dom更新)处理
     let childToDelete = currentFirstChild;
     while (childToDelete !== null) {
       deleteChild(returnFiber, childToDelete);
@@ -358,7 +363,7 @@ function ChildReconciler(shouldTrackSideEffects) {
     return clone;
   }
 
-  // 判断新workInProgress是否需要移动
+  // 判断新workInProgress是否需要移动，对需要移动的workInProgress添加flags为Placement
   // 根据上一个workInProgress的位置index获取当前workInProgress的位置index
   // 不是很准确???
   // abc => bdeca
@@ -398,6 +403,8 @@ function ChildReconciler(shouldTrackSideEffects) {
   }
 
   // newFiber  子workInProgress(复用的或是新创新的)
+  // 对新创建的workInProgress(老的alternate指向currentFiber，新的alternate为null)添加flags为Placement
+  // 等到completeUnitOfWork时会将自身添加到父workInProgress的effect list最后，表示有副作用更新
   function placeSingleChild(newFiber: Fiber): Fiber {
     // This is simpler for the single child case. We only need to do a
     // placement for inserting new children.
@@ -894,7 +901,7 @@ function ChildReconciler(shouldTrackSideEffects) {
     // 生成每一个新的workInProgress(替换/更新)，串联到链表结构中
     // 第一个为resultingFirstChild，后面的通过sibling连接
     // 判断每一个新的workInProgress的位置是否需要移动并标记
-    // 是否移动的判断和vue一样
+    // 是否移动的判断和vue2.x一样
     for (; oldFiber !== null && newIdx < newChildren.length; newIdx++) {
       // 比较新老index
       // 这里比较index的作用???
@@ -939,7 +946,7 @@ function ChildReconciler(shouldTrackSideEffects) {
         }
       }
 
-      // 判断新workInProgress是否需要移动
+      // 判断新workInProgress是否需要移动，对需要移动的workInProgress添加flags为Placement
       // 根据上一个workInProgress的位置index获取当前workInProgress的位置index
       // lastPlacedIndex由上一个的位置index更新为当前的位置index
       lastPlacedIndex = placeChild(newFiber, lastPlacedIndex, newIdx);
@@ -965,7 +972,9 @@ function ChildReconciler(shouldTrackSideEffects) {
     // newChildren全部遍历，删除剩下的老的currentFiber，直接返回第一个子workInProgress
     if (newIdx === newChildren.length) {
       // We've reached the end of the new children. We can delete the rest.
-      // 删除oldFiber及其之后的所有currentFiber
+      // oldFiber及其之后的所有子fiber标记为需要删除的fiber，并添加到父workInProgress(也就是returnFiber)的effect list副作用单链表中
+      // 同时给这些需要删除的fiber添加flags，completeUnitOfWork时会将自身添加到父workInProgress的effect list的最后(effect list中的顺序是先子后父)
+      // 等到commit的时候统一进行副作用(也就是dom更新)处理
       deleteRemainingChildren(returnFiber, oldFiber);
       return resultingFirstChild;
     }
@@ -981,6 +990,7 @@ function ChildReconciler(shouldTrackSideEffects) {
         if (newFiber === null) {
           continue;
         }
+        // 判断新workInProgress是否需要移动，对需要移动的workInProgress添加flags为Placement
         lastPlacedIndex = placeChild(newFiber, lastPlacedIndex, newIdx);
         if (previousNewFiber === null) {
           // TODO: Move out of the loop. This only happens for the first run.
@@ -1028,6 +1038,7 @@ function ChildReconciler(shouldTrackSideEffects) {
             );
           }
         }
+        // 判断新workInProgress是否需要移动，对需要移动的workInProgress添加flags为Placement
         lastPlacedIndex = placeChild(newFiber, lastPlacedIndex, newIdx);
         // 形成链表
         if (previousNewFiber === null) {
@@ -1153,6 +1164,7 @@ function ChildReconciler(shouldTrackSideEffects) {
           deleteChild(returnFiber, oldFiber);
         }
       }
+      // 判断新workInProgress是否需要移动，对需要移动的workInProgress添加flags为Placement
       lastPlacedIndex = placeChild(newFiber, lastPlacedIndex, newIdx);
       if (previousNewFiber === null) {
         // TODO: Move out of the loop. This only happens for the first run.

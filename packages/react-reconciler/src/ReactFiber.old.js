@@ -172,6 +172,8 @@ function FiberNode(
   this.flags = NoFlags;
   // 在首次渲染的时候 firstEffect,lastEffect,nextEffect三个指针均为初始时均为null
   // 这三个指针用于重新渲染，共同维护起一个抽象的effectList单向链表
+  // 这个effectList单向链表存储的有副作用(需要更新dom)的fiber，顺序为先子后父，
+  // 在completeUnitOfWork子workInProgress时会根据其flags判断是否需要将其添加到当前workInProgress的effect链表最后
   this.nextEffect = null;
 
   this.firstEffect = null;

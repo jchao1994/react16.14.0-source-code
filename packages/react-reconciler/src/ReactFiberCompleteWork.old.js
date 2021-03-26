@@ -201,6 +201,7 @@ if (supportsMutation) {
     // Noop
   };
   // diff新老props，workInProgress的更新队列即为需要更新的props updatePayload数组
+  // 在beginWork中updateQueue存放的是baseQueue链表和updateQueue.shared.pending链表，用于生成新state的，这里做了替换???
   updateHostComponent = function(
     current: Fiber,
     workInProgress: Fiber,
@@ -240,9 +241,11 @@ if (supportsMutation) {
     );
     // TODO: Type this specific to this type of component.
     // workInProgress的更新队列即为需要更新的props updatePayload数组
+    // 在beginWork中updateQueue存放的是baseQueue链表和updateQueue.shared.pending链表，用于生成新state的，这里做了替换???
     workInProgress.updateQueue = (updatePayload: any);
     // If the update payload indicates that there is a change or if there
     // is a new ref we mark this as an update. All the work is done in commitWork.
+    // 如有updatePayload，给workInProgress添加Update副作用
     if (updatePayload) {
       markUpdate(workInProgress);
     }
@@ -518,7 +521,7 @@ if (supportsMutation) {
   };
   // 处理dom结构，workInProgress的stateNode指向最新的dom，并且有最新的子dom
   // 1. 复用dom current.stateNode
-  // 2. 或者生成新的dom newInstance，diff新老props生成需要更新的updatePayload
+  // 2. 或者生成新的dom newInstance，diff新老props生成需要更新的updatePayload，直接更新到newInstance上
   //    并根据workInProgress.pendingProps设置newInstance的初始属性，然后将workInProgress的所有子节点对应的dom添加到newInstance的dom结构中
   updateHostComponent = function(
     current: Fiber,
@@ -812,6 +815,10 @@ function completeWork(
         // 处理dom结构
         // workInProgress的stateNode指向最新的dom，并且有最新的子dom
         // 里面有diff新老props，然后直接初始化对应属性到新的dom上
+        // 处理dom结构，workInProgress的stateNode指向最新的dom，并且有最新的子dom
+        // 1. 复用dom current.stateNode
+        // 2. 或者生成新的dom newInstance，diff新老props生成需要更新的updatePayload，直接更新到newInstance上
+        //    并根据workInProgress.pendingProps(也就是这里的newProps)设置newInstance的初始属性，然后将workInProgress的所有子节点对应的dom添加到newInstance的dom结构中
         updateHostComponent(
           current,
           workInProgress,

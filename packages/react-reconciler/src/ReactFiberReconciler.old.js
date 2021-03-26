@@ -311,6 +311,7 @@ export function updateContainer(
   }
 
   // 根据eventTime和lane生成一个update对象
+  // update主要存放更新内容(存放在payload上)，并通过next实现updateQueue链表
   const update = createUpdate(eventTime, lane);
   // Caution: React DevTools currently depends on this property
   // being called "element".

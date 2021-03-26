@@ -918,6 +918,7 @@ function ChildReconciler(shouldTrackSideEffects) {
       // 对比新老currentFiber，获取新的或者更新过老的workInProgress
       // 也有可能返回null
       // oldFiber为null，newFiber也有可能不为null
+      // 这里对比了新老key
       const newFiber = updateSlot(
         returnFiber,
         oldFiber,

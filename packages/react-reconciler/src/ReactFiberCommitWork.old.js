@@ -547,6 +547,7 @@ function commitLifeCycles(
       // 触发componentDidMount或componentDidUpdate
       // 清空updateQueue以其所有effect的callback
 
+      // finishedWork对应的dom
       const instance = finishedWork.stateNode;
       // 处理update副作用，在第二阶段不是都处理过且移除了吗???
       // 触发用户传入的componentDidMount或componentDidUpdate生命周期，记录layout effect持续时间

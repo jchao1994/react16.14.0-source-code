@@ -238,7 +238,7 @@ if (__DEV__) {
 export function reconcileChildren(
   current: Fiber | null, // currentFiber
   workInProgress: Fiber, // workInProgress
-  nextChildren: any, // workInProgress.pendingProps.children
+  nextChildren: any, // workInProgress.pendingProps.children/nextChildren
   renderLanes: Lanes,
 ) {
   if (current === null) {
@@ -930,6 +930,8 @@ function updateClassComponent(
   let shouldUpdate;
   // 做更新前的处理，判断是否shouldUpdate
   // 调用更新前的生命周期，并为更新后需要调用的生命周期加上副作用
+  // 这里包括处理workInProgress.updateQueue.shared.pending和workInProgress.updateQueue的baseUpdate链表，生成新state
+  // workInProgress.memoizedState指向最新的state
   if (instance === null) {
     // workInProgress没有stateNode
     if (current !== null) {
@@ -942,6 +944,7 @@ function updateClassComponent(
       current.alternate = null;
       workInProgress.alternate = null;
       // Since this is conceptually a new fiber, schedule a Placement effect
+      // 给当前workInProgress添加Placement副作用，completeUnitOfWork时会将自身添加到父workInProgress的effect list链表的最后
       workInProgress.flags |= Placement;
     }
     // In the initial pass we might need to construct the instance.
@@ -950,6 +953,25 @@ function updateClassComponent(
     // 创建新的组件实例，更新workInProgress.memoizedState
     // 给组件实例挂上setState replaceState forceUpdate方法，然后和workInProgress互相指引
     constructClassInstance(workInProgress, Component, nextProps);
+    // 核心逻辑是 processUpdateQueue
+    // 将workInProgress.updateQueue.shared.pending链表追加到workInProgress.updateQueue的baseUpdate链表最后
+    // 然后根据baseUpdate链表，更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+    // 如果update有callback，给workInProgress加上Callback副作用，会completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
+    // 同时在workInProgress.updateQueue.effects中添加这个update对象，会在commit的第三阶段统一执行workInProgress.updateQueue.effects中的所有update对象的callback
+    // 最后更新相关属性，有两种情况
+    // 1.有newBaseUpdate链表
+    //     queue.baseState = queue.baseState(老state)
+    //     queue.firstBaseUpdate = newFirstBaseUpdate
+    //     queue.lastBaseUpdate = newLastBaseUpdate
+    //     workInProgress.lanes = updateLane
+    //     workInProgress.memoizedState = newState(新state)
+    // 2.没有newBaseUpdate链表
+    //     queue.baseState = newState(新state)
+    //     queue.firstBaseUpdate = null
+    //     queue.lastBaseUpdate = null
+    //     workInProgress.lanes = NoLanes
+    //     workInProgress.memoizedState = newState(新state)
+    // 执行完processUpdateQueue后，才进行如下逻辑
     // 对从未render过的组件实例调用getDerivedStateFromProps UNSAFE_componentWillMount componentWillMount生命周期，更新instance.state
     // UNSAFE_componentWillMount componentWillMount这两个过时的生命周期只有在不使用getDerivedStateFromProps和getSnapshotBeforeUpdate时候才会调用
     // componentDidMount这里不调用，只给workInProgress标记update副作用，在commit阶段会调用componentDidMount
@@ -993,7 +1015,7 @@ function updateClassComponent(
       renderLanes,
     );
   }
-  // 到这里，已经完成更新前的工作
+  // 到这里，已经完成更新前的工作(已经处理了workInProgress.updateQueue.shared.pending和workInProgress.updateQueue的baseUpdate链表，生成新state)
   // 下面就是核心逻辑，dom diff并返回下一个单元任务workInProgress.child
 
   // 如果应该update
@@ -1026,7 +1048,7 @@ function updateClassComponent(
   return nextUnitOfWork;
 }
 
-// 完成类组件更新前的工作之后，调用这个方法
+// 完成类组件更新前的工作之后(已经处理了workInProgress.updateQueue.shared.pending和workInProgress.updateQueue的baseUpdate链表，生成新state)，调用这个方法
 // 如果应该update
 //    加上ref副作用，调用组件实例的render方法生成nextChildren
 //    然后reconcileChildren协调children，做dom diff并生成新的 workInProgress.child 作为下一个单元任务
@@ -1068,6 +1090,7 @@ function finishClassComponent(
   // ReactDOM.render(<App/>, document.getElementById('root')) 在这里就指向了<App/>对应的root workInProgress
   // 这就在ReactElement与fiber之间建立桥梁关系
   ReactCurrentOwner.current = workInProgress;
+  // 执行组件实例的render方法，获取nextChildren
   let nextChildren;
   // 有didCapture副作用且没有getDerivedStateFromError，卸载所有children
   // 会调度一个update来执行componentDidCatch进行re-render
@@ -1106,13 +1129,14 @@ function finishClassComponent(
       }
       setIsRendering(false);
     } else {
-      // 执行当前组件实例的render方法，获取nextChildren
+      // 执行当前组件实例的render方法，获取nextChildren(jsx转换而成的reactElement对象)
       nextChildren = instance.render();
     }
   }
 
   // React DevTools reads this flag.
   // 给workInProgress加上PerformedWork副作用，这个副作用是给React DevTools读取的
+  // 如果workInProgress的flags只有PerformedWork，是不会在completeUnitOfWork时将自身添加到父workInProgress的effect list链表中的
   workInProgress.flags |= PerformedWork;
   if (current !== null && didCaptureError) {
     // If we're recovering from an error, reconcile without reusing any of

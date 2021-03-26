@@ -205,7 +205,7 @@ const classComponentUpdater = {
     // React16.8中引入的泳道概念，替代了ExpirationTime标注更新task的优先级
     const lane = requestUpdateLane(fiber);
 
-    // 将上面的计算出来的值合并成一个update对象
+    // 将上面的计算出来的值创建成一个tag为UpdateState的update对象，在更新state时会对state做更新合并
     const update = createUpdate(eventTime, lane);
     // payload是setState传进来的要更新的对象
     update.payload = payload;
@@ -221,8 +221,9 @@ const classComponentUpdater = {
     // 从名称上看是队列更新，实际上是对fiber中的链表进行更新，将update task对象挂载到pending属性上
     enqueueUpdate(fiber, update);
     // 开始react异步渲染的核心，任务调度更新  React Scheduler
-    // 内部核心逻辑都是performSyncWorkOnRoot
+    // 内部核心逻辑都是performSyncWorkOnRoot/performConcurrentWorkOnRoot
     // performSyncWorkOnRoot 先执行同步工作renderRootSync，然后提交root
+    // performConcurrentWorkOnRoot 是performSyncWorkOnRoot的异步版本，实现时间切片
     scheduleUpdateOnFiber(fiber, lane, eventTime);
 
     if (__DEV__) {
@@ -844,6 +845,25 @@ function callComponentWillReceiveProps(
 }
 
 // Invokes the mount life-cycles on a previously never rendered instance.
+// 核心逻辑是 processUpdateQueue
+// 将workInProgress.updateQueue.shared.pending链表追加到workInProgress.updateQueue的baseUpdate链表最后
+// 然后根据baseUpdate链表，更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+// 如果update有callback，给workInProgress加上Callback副作用，会completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
+// 同时在workInProgress.updateQueue.effects中添加这个update对象，会在commit的第三阶段统一执行workInProgress.updateQueue.effects中的所有update对象的callback
+// 最后更新相关属性，有两种情况
+// 1.有newBaseUpdate链表
+//     queue.baseState = queue.baseState(老state)
+//     queue.firstBaseUpdate = newFirstBaseUpdate
+//     queue.lastBaseUpdate = newLastBaseUpdate
+//     workInProgress.lanes = updateLane
+//     workInProgress.memoizedState = newState(新state)
+// 2.没有newBaseUpdate链表
+//     queue.baseState = newState(新state)
+//     queue.firstBaseUpdate = null
+//     queue.lastBaseUpdate = null
+//     workInProgress.lanes = NoLanes
+//     workInProgress.memoizedState = newState(新state)
+// 执行完processUpdateQueue后，才进行如下逻辑
 // 对从未render过的组件实例调用getDerivedStateFromProps UNSAFE_componentWillMount componentWillMount生命周期，更新instance.state
 // UNSAFE_componentWillMount componentWillMount这两个过时的生命周期只有在不使用getDerivedStateFromProps和getSnapshotBeforeUpdate时候才会调用
 // componentDidMount这里不调用，只给workInProgress标记update副作用，在commit阶段会调用componentDidMount
@@ -905,10 +925,25 @@ function mountClassInstance(
     }
   }
 
-  // 更新workInProgress.updateQueue的baseState firstBaseUpdate lastBaseUpdate
-  // 标记更新lanes跳过newLanes，更新workInProgress的lanes和memoizedState
+  // 将workInProgress.updateQueue.shared.pending链表追加到workInProgress.updateQueue的baseUpdate链表最后
+  // 然后根据baseUpdate链表，更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+  // 如果update有callback，给workInProgress加上Callback副作用，会completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
+  // 同时在workInProgress.updateQueue.effects中添加这个update对象，会在commit的第三阶段统一执行workInProgress.updateQueue.effects中的所有update对象的callback
+  // 最后更新相关属性，有两种情况
+  // 1.有newBaseUpdate链表
+  //     queue.baseState = queue.baseState(老state)
+  //     queue.firstBaseUpdate = newFirstBaseUpdate
+  //     queue.lastBaseUpdate = newLastBaseUpdate
+  //     workInProgress.lanes = updateLane
+  //     workInProgress.memoizedState = newState(新state)
+  // 2.没有newBaseUpdate链表
+  //     queue.baseState = newState(新state)
+  //     queue.firstBaseUpdate = null
+  //     queue.lastBaseUpdate = null
+  //     workInProgress.lanes = NoLanes
+  //     workInProgress.memoizedState = newState(新state)
   processUpdateQueue(workInProgress, newProps, instance, renderLanes);
-  // 更新instance.state
+  // 更新instance.state，这里的memoizedState可能是部分更新完成后的newState，也可能是全部更新完成后的newState
   instance.state = workInProgress.memoizedState;
 
   // 用户传入的getDerivedStateFromProps(props, state)生命周期
@@ -944,14 +979,30 @@ function mountClassInstance(
     callComponentWillMount(workInProgress, instance);
     // If we had additional state updates during this life-cycle, let's
     // process them now.
-    // 更新workInProgress.updateQueue的baseState firstBaseUpdate lastBaseUpdate
-    // 标记更新lanes跳过newLanes，更新workInProgress的lanes和memoizedState
+    // 将workInProgress.updateQueue.shared.pending链表追加到workInProgress.updateQueue的baseUpdate链表最后
+    // 然后根据baseUpdate链表，更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+    // 如果update有callback，给workInProgress加上Callback副作用，会completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
+    // 同时在workInProgress.updateQueue.effects中添加这个update对象，会在commit的第三阶段统一执行workInProgress.updateQueue.effects中的所有update对象的callback
+    // 最后更新相关属性，有两种情况
+    // 1.有newBaseUpdate链表
+    //     queue.baseState = queue.baseState(老state)
+    //     queue.firstBaseUpdate = newFirstBaseUpdate
+    //     queue.lastBaseUpdate = newLastBaseUpdate
+    //     workInProgress.lanes = updateLane
+    //     workInProgress.memoizedState = newState(新state)
+    // 2.没有newBaseUpdate链表
+    //     queue.baseState = newState(新state)
+    //     queue.firstBaseUpdate = null
+    //     queue.lastBaseUpdate = null
+    //     workInProgress.lanes = NoLanes
+    //     workInProgress.memoizedState = newState(新state)
     processUpdateQueue(workInProgress, newProps, instance, renderLanes);
     // 更新instance.state
     instance.state = workInProgress.memoizedState;
   }
 
-  // 如果传入componentDidMount生命周期，给workInProgress加上update副作用，commit阶段会执行
+  // 如果传入componentDidMount生命周期，给workInProgress加上update副作用，completeUnitOfWork时会将当前workInProgress添加到父workInProgress的effect list链表最后
+  // commit阶段会执行componentDidMount生命周期
   if (typeof instance.componentDidMount === 'function') {
     workInProgress.flags |= Update;
   }
@@ -1032,8 +1083,23 @@ function resumeMountClassInstance(
 
   const oldState = workInProgress.memoizedState;
   let newState = (instance.state = oldState);
-  // 更新workInProgress.updateQueue的baseState firstBaseUpdate lastBaseUpdate
-  // 标记更新lanes跳过newLanes，更新workInProgress的lanes和memoizedState
+  // 将workInProgress.updateQueue.shared.pending链表追加到workInProgress.updateQueue的baseUpdate链表最后
+  // 然后根据baseUpdate链表，更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+  // 如果update有callback，给workInProgress加上Callback副作用，会completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
+  // 同时在workInProgress.updateQueue.effects中添加这个update对象，会在commit的第三阶段统一执行workInProgress.updateQueue.effects中的所有update对象的callback
+  // 最后更新相关属性，有两种情况
+  // 1.有newBaseUpdate链表
+  //     queue.baseState = queue.baseState(老state)
+  //     queue.firstBaseUpdate = newFirstBaseUpdate
+  //     queue.lastBaseUpdate = newLastBaseUpdate
+  //     workInProgress.lanes = updateLane
+  //     workInProgress.memoizedState = newState(新state)
+  // 2.没有newBaseUpdate链表
+  //     queue.baseState = newState(新state)
+  //     queue.firstBaseUpdate = null
+  //     queue.lastBaseUpdate = null
+  //     workInProgress.lanes = NoLanes
+  //     workInProgress.memoizedState = newState(新state)
   processUpdateQueue(workInProgress, newProps, instance, renderLanes);
   newState = workInProgress.memoizedState;
   // 没有变化就返回false给到shouldUpdate，表示不应该update
@@ -1221,8 +1287,23 @@ function updateClassInstance(
 
   const oldState = workInProgress.memoizedState;
   let newState = (instance.state = oldState);
-  // 更新workInProgress.updateQueue的baseState firstBaseUpdate lastBaseUpdate
-  // 标记更新lanes跳过newLanes，更新workInProgress的lanes和memoizedState
+  // 将workInProgress.updateQueue.shared.pending链表追加到workInProgress.updateQueue的baseUpdate链表最后
+  // 然后根据baseUpdate链表，更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+  // 如果update有callback，给workInProgress加上Callback副作用，会completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
+  // 同时在workInProgress.updateQueue.effects中添加这个update对象，会在commit的第三阶段统一执行workInProgress.updateQueue.effects中的所有update对象的callback
+  // 最后更新相关属性，有两种情况
+  // 1.有newBaseUpdate链表
+  //     queue.baseState = queue.baseState(老state)
+  //     queue.firstBaseUpdate = newFirstBaseUpdate
+  //     queue.lastBaseUpdate = newLastBaseUpdate
+  //     workInProgress.lanes = updateLane
+  //     workInProgress.memoizedState = newState(新state)
+  // 2.没有newBaseUpdate链表
+  //     queue.baseState = newState(新state)
+  //     queue.firstBaseUpdate = null
+  //     queue.lastBaseUpdate = null
+  //     workInProgress.lanes = NoLanes
+  //     workInProgress.memoizedState = newState(新state)
   processUpdateQueue(workInProgress, newProps, instance, renderLanes);
   newState = workInProgress.memoizedState;
 

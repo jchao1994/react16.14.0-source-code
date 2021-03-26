@@ -157,6 +157,7 @@ function FiberNode(
   // 表示更新队列
   // 例如在常见的setState操作中
   // 其实会先将需要更新的数据存放到这里的updateQueue队列中用于后续调度
+  // updateQueue中的update对象通过next连接，实现单链表
   this.updateQueue = null;
   // 当前state
   // 表示之前已经存储的state数据

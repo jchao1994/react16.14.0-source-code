@@ -1854,11 +1854,12 @@ function workLoopConcurrent() {
 // render的核心逻辑
 // 执行每个单元任务unitOfWork(workInProgress)的render工作
 // 核心逻辑 beginWork => completeUnitOfWork => 设置下一个单元任务workInProgress => 循环直至没有下一个单元任务
-// beginWork 内部核心逻辑是reconcileChildren，也就是dom diff，更新workInProgress.child为下一个单元工作
-// beginWork 过程中会对newChild(如果是数组)中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
+// beginWork 内部核心逻辑一是处理updateQueue.shared.pending链表和updateQueue.baseQueue链表生成新state，根据新state执行render函数生成新children
+// beginWork 内部核心逻辑二是对新children进行reconcileChildren，也就是dom diff，更新workInProgress.child为下一个单元工作
+// beginWork reconcileChildren过程中会对newChild(如果是数组)中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
 // completeUnitOfWork 内部核心逻辑一是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
 // completeUnitOfWork 内部核心逻辑二是更新父workInProgress的effect list链表，将当前unitOfWork(也就是completedWork)的effect list(只包含其children)以及自身(如有副作用)添加到父workInProgress的effect list链表的最后
-// 整个performUnitOfWork的工作是 dom diff => 更新workInProgress.stateNode/设置workInProgress.updateQueue等到后续提交的时候更新 => 更新父workInProgress的effect list链表
+// 整个performUnitOfWork的工作是 生成新state => 生成新children用于reconcileChildren(也就是dom diff) => 更新workInProgress.stateNode/设置workInProgress.updateQueue等到后续提交的时候更新 => 更新父workInProgress的effect list链表
 function performUnitOfWork(unitOfWork: Fiber): void {
   // The current, flushed, state of this fiber is the alternate. Ideally
   // nothing should rely on this, but relying on it here means that we don't
@@ -1873,7 +1874,9 @@ function performUnitOfWork(unitOfWork: Fiber): void {
     // 记录开始时间
     startProfilerTimer(unitOfWork);
     // beginWork返回的下一个单元任务next指向unitOfWork的child，也就是第一个子fiber
-    // 核心逻辑是reconcileChildren，也就是dom diff，更新workInProgress.child为下一个单元工作
+    // 核心逻辑一是处理updateQueue.shared.pending链表和updateQueue.baseQueue链表生成新state，根据新state执行render函数生成新children
+    // 核心逻辑二是对新children进行reconcileChildren，也就是dom diff，更新workInProgress.child为下一个单元工作
+    // reconcileChildren过程中会对newChild(如果是数组)中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
     // 这里会对newChild(如果是数组)中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
     next = beginWork(current, unitOfWork, subtreeRenderLanes);
     // 记录结束时间，更新unitOfWork的render持续时间
@@ -1937,7 +1940,10 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         !enableProfilerTimer ||
         (completedWork.mode & ProfileMode) === NoMode
       ) {
-        // 将completedWork转换为真实dom，返回下一个单元任务next
+        // 将completedWork转换为真实dom
+        // 这里的工作是处理与dom相关的更新替换，将workInProgress转变为真实dom
+        // 让workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+        // 原生dom fiber还会diff props初始化dom属性
         next = completeWork(current, completedWork, subtreeRenderLanes);
       } else {
         // render持续时间累加上completeWork的时间得到最新的render持续时间

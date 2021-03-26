@@ -161,9 +161,11 @@ export function initializeUpdateQueue<State>(fiber: Fiber): void {
     lastBaseUpdate: null,
     shared: {
       // 新的baseQueue
+      // setState会将需要更新的update对象存储在这里
       pending: null,
     },
     // effect list
+    // commit的第三个阶段会取effects上的所有callback执行
     effects: null,
   };
   fiber.updateQueue = queue;
@@ -193,13 +195,13 @@ export function cloneUpdateQueue<State>(
   }
 }
 
-// 创建update对象
+// 创建tag为UpdateState的update对象，在更新state时会对state做更新合并
 export function createUpdate(eventTime: number, lane: Lane): Update<*> {
   const update: Update<*> = {
     eventTime, // 程序运行到此刻的时间戳，React会基于它进行更新优先级排序
     lane, // 优先级泳道
-    // export const UpdateState = 0; // 更新
-    // export const ReplaceState = 1; // 替换
+    // export const UpdateState = 0; // 更新，在更新state时会对state做更新合并
+    // export const ReplaceState = 1; // 替换，在更新state时会拿新state直接覆盖老state
     // export const ForceUpdate = 2; // 强制更换
     // export const CaptureUpdate = 3; // 捕获性的更新
     tag: UpdateState, // 默认为0
@@ -214,7 +216,7 @@ export function createUpdate(eventTime: number, lane: Lane): Update<*> {
   return update;
 }
 
-// 将update放在fiber.updateQueue.shared.pending队列末尾
+// 将update放在fiber.updateQueue.shared.pending上，整个fiber.updateQueue.shared是个循环单链表
 // enqueueUpdate是针对fiber链表的一个更新方法，将update task对象挂载到pending属性上
 // 这里的fiber是workInProgress
 export function enqueueUpdate<State>(fiber: Fiber, update: Update<State>) {
@@ -227,7 +229,11 @@ export function enqueueUpdate<State>(fiber: Fiber, update: Update<State>) {
 
   const sharedQueue: SharedQueue<State> = (updateQueue: any).shared;
   const pending = sharedQueue.pending;
-  // 检查当前链表
+  // 更新updateQueue.shared.pending链表，后续到 beginWork - processUpdateQueue 中会生成pendingUpdate链表并追加到baseUpdate链表末尾
+  // 更新后的顺序为pending => update => pending.next => 循环
+  // 然后sharedQueue.pending指向update，也就是原来的pending变成了最后一个
+  // 会在 beginWork - processUpdateQueue 中将update.next设置为firstPendingUpdate，将update设置为lastPendingUpdate
+  // 其实最后在pendingUpdate单链表中的顺序为pending.next => pending => update，也就是在末尾添加了update
   if (pending === null) {
     // This is the first update. Create a circular list.
     // 首次update，pending为null，update的next指向自身
@@ -235,6 +241,10 @@ export function enqueueUpdate<State>(fiber: Fiber, update: Update<State>) {
   } else {
     // 更新update，update的next指向下一个pending的next
     // pending的next指向update
+    // 更新后的顺序为pending => update => pending.next => 循环
+    // 然后sharedQueue.pending指向update，也就是原来的pending变成了最后一个
+    // 会在 beginWork - processUpdateQueue 中将update.next设置为firstPendingUpdate，将update设置为lastPendingUpdate
+    // 其实最后在pendingUpdate单链表中的顺序为pending.next => pending => update，也就是在末尾添加了update
     update.next = pending.next;
     pending.next = update;
   }
@@ -336,7 +346,8 @@ export function enqueueCapturedUpdate<State>(
   queue.lastBaseUpdate = capturedUpdate;
 }
 
-// 更新state
+// 更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+// setState传入的update的tag为UpdateState，这里会进行更新合并处理
 function getStateFromUpdate<State>(
   workInProgress: Fiber,
   queue: UpdateQueue<State>, // workInProgress.updateQueue
@@ -383,7 +394,7 @@ function getStateFromUpdate<State>(
     }
     // Intentional fallthrough
     case UpdateState: {
-      // 更新
+      // 更新合并
       // 新的合并到老的上面
       const payload = update.payload;
       // 根据payload拿到部分新的state
@@ -431,8 +442,23 @@ function getStateFromUpdate<State>(
   return prevState;
 }
 
-// 更新workInProgress.updateQueue的baseState firstBaseUpdate lastBaseUpdate
-// 标记更新lanes跳过newLanes，更新workInProgress的lanes和memoizedState
+// 将workInProgress.updateQueue.shared.pending链表追加到workInProgress.updateQueue的baseUpdate链表最后
+// 然后根据baseUpdate链表，更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+// 如果update有callback，给workInProgress加上Callback副作用，会completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
+// 同时在workInProgress.updateQueue.effects中添加这个update对象，会在commit的第三阶段统一执行workInProgress.updateQueue.effects中的所有update对象的callback
+// 最后更新相关属性，有两种情况
+// 1.有newBaseUpdate链表
+//     queue.baseState = queue.baseState(老state)
+//     queue.firstBaseUpdate = newFirstBaseUpdate
+//     queue.lastBaseUpdate = newLastBaseUpdate
+//     workInProgress.lanes = updateLane
+//     workInProgress.memoizedState = newState(新state)
+// 2.没有newBaseUpdate链表
+//     queue.baseState = newState(新state)
+//     queue.firstBaseUpdate = null
+//     queue.lastBaseUpdate = null
+//     workInProgress.lanes = NoLanes
+//     workInProgress.memoizedState = newState(新state)
 export function processUpdateQueue<State>(
   workInProgress: Fiber,
   props: any, // nextProps
@@ -453,7 +479,8 @@ export function processUpdateQueue<State>(
   let lastBaseUpdate = queue.lastBaseUpdate;
 
   // Check if there are pending updates. If so, transfer them to the base queue.
-  // 将pendingQueue加在workInProgress和currentFiber的baseQueue的最后
+  // 将pendingQueue同步更新到workInProgress和currentFiber的baseQueue的最后
+  // pendingQueue里面存放的是需要更新的内容，setState会生成一个新的update对象放在pendingQueue上
   // workInProgress.updateQueue未更新，在最后更新
   // 而currentFiber.updateQueue这里已经更新了
   let pendingQueue = queue.shared.pending;
@@ -465,6 +492,9 @@ export function processUpdateQueue<State>(
     // The pending queue is circular. Disconnect the pointer between first
     // and last so that it's non-circular.
     // pendingQueue是循环的，断开首尾的连接
+    // queue.shared.pending.next作为firstPendingUpdate
+    // queue.shared.pending作为lastPendingUpdate
+    // setState中新添加的update对象是放在queue.shared.pending上，到这里也就成了lastPendingUpdate，也就是放在了更新队列的末尾
     const lastPendingUpdate = pendingQueue;
     const firstPendingUpdate = lastPendingUpdate.next;
     lastPendingUpdate.next = null;
@@ -483,7 +513,7 @@ export function processUpdateQueue<State>(
     // queue is a singly-linked list with no cycles, we can append to both
     // lists and take advantage of structural sharing.
     // TODO: Pass `current` as argument
-    // 同步pendingQueue到currentFiber的base Update的最后，实现结构共享，有什么作用???
+    // 同步pendingQueue到currentFiber的base Update的最后，实现结构共享
     // 这里直接更新到current.updateQueue上
 
     // currentFiber
@@ -492,6 +522,7 @@ export function processUpdateQueue<State>(
       // This is always non-null on a ClassComponent or HostRoot
       const currentQueue: UpdateQueue<State> = (current.updateQueue: any);
       const currentLastBaseUpdate = currentQueue.lastBaseUpdate;
+      // currentLastBaseUpdate !== lastBaseUpdate 表示有pendingQueue，同步到currentQueue上
       if (currentLastBaseUpdate !== lastBaseUpdate) {
         if (currentLastBaseUpdate === null) {
           currentQueue.firstBaseUpdate = firstPendingUpdate;
@@ -516,8 +547,10 @@ export function processUpdateQueue<State>(
     let newLastBaseUpdate = null;
 
     // 遍历workInProgress的新的baseQueue(包括加上的pendingQueue)
-    // 更新newState newLanes newBaseState newFirstBaseUpdate newLastBaseUpdate
-    // 这里的firstBaseUpdate指向的是baseQueue的第一个
+    // 更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+    // 如果update有callback，给workInProgress加上Callback副作用，会completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
+    // 同时在workInProgress.updateQueue.effects中添加这个update对象，会在commit的第三阶段统一执行workInProgress.updateQueue.effects中的所有update对象的callback
+    // 这个过程中有可能会产生newFirstBaseUpdate和newLastBaseUpdate(后面统称newBaseUpdate链表)，什么情况下会产生呢???
     let update = firstBaseUpdate;
     do {
       // baseUpdate的lane
@@ -528,9 +561,9 @@ export function processUpdateQueue<State>(
         // Priority is insufficient. Skip this update. If this is the first
         // skipped update, the previous update/state is the new base
         // update/state.
-        // renderLanes中没有updateLane
+        // renderLanes中没有updateLane，会产生newBaseUpdate链表，什么情况下会产生呢???
 
-        // 根据update克隆一个新的update，添加到新的baseQueue的最后
+        // 根据update克隆一个新的update，更新为newLastBaseUpdate
         const clone: Update<State> = {
           eventTime: updateEventTime,
           lane: updateLane,
@@ -553,7 +586,11 @@ export function processUpdateQueue<State>(
       } else {
         // This update does have sufficient priority.
         // renderLanes中有updateLane
+        // 更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+        // 如果update有callback，给workInProgress加上Callback副作用，会completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
+        // 同时在workInProgress.updateQueue.effects中添加这个update对象，会在commit的第三阶段统一执行workInProgress.updateQueue.effects中的所有update对象的callback
 
+        // newLastBaseUpdate更新为最新的克隆的update对象
         if (newLastBaseUpdate !== null) {
           // 根据update克隆一个新的update添加到新的baseQueue的最后
           const clone: Update<State> = {
@@ -574,7 +611,8 @@ export function processUpdateQueue<State>(
         }
 
         // Process this update.
-        // 更新state
+        // 更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+        // setState传入的update的tag为UpdateState，这里会进行更新合并处理
         newState = getStateFromUpdate(
           workInProgress,
           queue,
@@ -583,8 +621,8 @@ export function processUpdateQueue<State>(
           props,
           instance,
         );
-        // update有callback
-        // 给workInProgress加上Callback副作用，在effect list最后加上这个update
+        // 如果update有callback，给workInProgress加上Callback副作用，会completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
+        // 同时在workInProgress.updateQueue.effects中添加这个update对象，会在commit的第三阶段统一执行workInProgress.updateQueue.effects中的所有update对象的callback
         const callback = update.callback;
         if (callback !== null) {
           workInProgress.flags |= Callback;
@@ -609,8 +647,9 @@ export function processUpdateQueue<State>(
         } else {
           // An update was scheduled from inside a reducer. Add the new
           // pending updates to the end of the list and keep processing.
-          // 如果有pendingQueue，加到baseQueue的最后，继续遍历
+          
           // 根据前面的逻辑这里不可能执行到，这里处理什么情况???
+          // 如果还有pendingQueue，加到baseQueue的最后，继续遍历
 
           const lastPendingUpdate = pendingQueue;
           // Intentionally unsound. Pending updates form a circular list, but we
@@ -626,9 +665,24 @@ export function processUpdateQueue<State>(
       }
     } while (true);
 
+    // 整个baseQueue链表处理完毕，如果没有newBaseUpdate链表，就将更新完成的newState赋值到newBaseState上
     if (newLastBaseUpdate === null) {
       newBaseState = newState;
     }
+
+    // 下面有两种情况
+    // 1.有newBaseUpdate链表
+    //     queue.baseState = queue.baseState(老state)
+    //     queue.firstBaseUpdate = newFirstBaseUpdate
+    //     queue.lastBaseUpdate = newLastBaseUpdate
+    //     workInProgress.lanes = updateLane
+    //     workInProgress.memoizedState = newState(新state)
+    // 2.没有newBaseUpdate链表
+    //     queue.baseState = newState(新state)
+    //     queue.firstBaseUpdate = null
+    //     queue.lastBaseUpdate = null
+    //     workInProgress.lanes = NoLanes
+    //     workInProgress.memoizedState = newState(新state)
 
     // 更新workInProgress.updateQueue的baseState firstBaseUpdate lastBaseUpdate
     queue.baseState = ((newBaseState: any): State);

@@ -199,7 +199,7 @@ export function flushSyncCallbackQueue() {
   flushSyncCallbackQueueImpl();
 }
 
-// 开始同步回调队列syncQueue，遍历执行队列中的每一个回调
+// 开始同步回调队列syncQueue，遍历执行syncQueue队列中的每一个回调
 // 根据decoupleUpdatePriorityFromScheduler分为带最新优先级和不带最新优先级两种
 function flushSyncCallbackQueueImpl() {
   if (!isFlushingSyncQueue && syncQueue !== null) {

@@ -520,8 +520,8 @@ if (supportsMutation) {
     }
   };
   // 处理dom结构，workInProgress的stateNode指向最新的dom，并且有最新的子dom
-  // 1. 复用dom current.stateNode
-  // 2. 或者生成新的dom newInstance，diff新老props生成需要更新的updatePayload，直接更新到newInstance上
+  // 1. 复用dom current.stateNode作为workInProgress.stateNode
+  // 2. 或者生成新的dom newInstance，diff新老props生成需要更新的updatePayload，直接更新到newInstance(也就是workInProgress.stateNode)上
   //    并根据workInProgress.pendingProps设置newInstance的初始属性，然后将workInProgress的所有子节点对应的dom添加到newInstance的dom结构中
   updateHostComponent = function(
     current: Fiber,
@@ -729,7 +729,10 @@ function cutOffTailIfNeeded(
 
 // 这里的工作是处理与dom相关的更新替换，将workInProgress转变为真实dom
 // 让workInProgress.stateNode更新为最新的dom(复用或者新创建)，并完成整个dom的子dom结构
-// 原生dom fiber还会diff props初始化dom属性
+// 处理dom结构，workInProgress的stateNode指向最新的dom，并且有最新的子dom
+// 1. 复用dom current.stateNode作为workInProgress.stateNode
+// 2. 或者生成新的dom newInstance，diff新老props生成需要更新的updatePayload，直接更新到newInstance(也就是workInProgress.stateNode)上
+//    并根据workInProgress.pendingProps设置newInstance的初始属性，然后将workInProgress的所有子节点对应的dom添加到newInstance的dom结构中
 function completeWork(
   current: Fiber | null, // currentFiber
   workInProgress: Fiber, // workInProgress
@@ -816,9 +819,9 @@ function completeWork(
         // workInProgress的stateNode指向最新的dom，并且有最新的子dom
         // 里面有diff新老props，然后直接初始化对应属性到新的dom上
         // 处理dom结构，workInProgress的stateNode指向最新的dom，并且有最新的子dom
-        // 1. 复用dom current.stateNode
-        // 2. 或者生成新的dom newInstance，diff新老props生成需要更新的updatePayload，直接更新到newInstance上
-        //    并根据workInProgress.pendingProps(也就是这里的newProps)设置newInstance的初始属性，然后将workInProgress的所有子节点对应的dom添加到newInstance的dom结构中
+        // 1. 复用dom current.stateNode作为workInProgress.stateNode
+        // 2. 或者生成新的dom newInstance，diff新老props生成需要更新的updatePayload，直接更新到newInstance(也就是workInProgress.stateNode)上
+        //    并根据workInProgress.pendingProps设置newInstance的初始属性，然后将workInProgress的所有子节点对应的dom添加到newInstance的dom结构中
         updateHostComponent(
           current,
           workInProgress,

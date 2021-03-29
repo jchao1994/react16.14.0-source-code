@@ -1054,7 +1054,7 @@ function finishConcurrentRender(root, exitStatus, lanes) {
     }
     case RootCompleted: {
       // The work completed. Ready to commit.
-      // 提交fiberRoot
+      // 提交fiberRoot，也就是对root的effect副作用链表上的每一个effect进行处理
       // 这里会走三个阶段before mutation  mutation  layout
       // 更新dom，触发生命周期componentWillUnmounted componentDidMount componentDidUpdate
       // 三个阶段走完，就停止调度，让浏览器绘制页面
@@ -1176,7 +1176,7 @@ function performSyncWorkOnRoot(root) {
   const finishedWork: Fiber = (root.current.alternate: any); // rootFiber
   root.finishedWork = finishedWork; // rootFiber
   root.finishedLanes = lanes; // nextLanes
-  // 整个root的提交
+  // 整个root的提交，也就是对root的effect副作用链表上的每一个effect进行处理
   // 这里就是先设置最新的调度优先级，然后执行commitRootImpl
   // 这里会走三个阶段before mutation  mutation  layout
   // 更新dom，触发生命周期componentWillUnmounted componentDidMount componentDidUpdate
@@ -1857,7 +1857,7 @@ function workLoopConcurrent() {
 // beginWork 内部核心逻辑一是处理updateQueue.shared.pending链表和updateQueue.baseQueue链表生成新state，根据新state执行render函数生成新children
 // beginWork 内部核心逻辑二是对新children进行reconcileChildren，也就是dom diff，更新workInProgress.child为下一个单元工作
 // beginWork reconcileChildren过程中会对newChild(如果是数组)中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
-// completeUnitOfWork 内部核心逻辑一是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+// completeUnitOfWork 内部核心逻辑一是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用或者新创建)，并完成整个dom的子dom结构
 // completeUnitOfWork 内部核心逻辑二是更新父workInProgress的effect list链表，将当前unitOfWork(也就是completedWork)的effect list(只包含其children)以及自身(如有副作用)添加到父workInProgress的effect list链表的最后
 // 整个performUnitOfWork的工作是 生成新state => 生成新children用于reconcileChildren(也就是dom diff) => 更新workInProgress.stateNode/设置workInProgress.updateQueue等到后续提交的时候更新 => 更新父workInProgress的effect list链表
 function performUnitOfWork(unitOfWork: Fiber): void {
@@ -1897,7 +1897,7 @@ function performUnitOfWork(unitOfWork: Fiber): void {
     // beginWork中找不到下一个单元任务next（也就是第一个子fiber，表示不存在children），就对当前单元任务unitOfWork进行completeUnitOfWork
     // completeUnitOfWork过程中会找到下一个单元任务赋值到workInProgress，循环继续执行performUnitOfWork
     // 如果completeUnitOfWork过程中没有下一个单元任务了，那就结束循环，结束workLoopSync
-    // 内部核心逻辑一是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+    // 内部核心逻辑一是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用或者新创建)，并完成整个dom的子dom结构
     // 内部核心逻辑二是更新父workInProgress的effect list链表，将当前unitOfWork(也就是completedWork)的effect list(只包含其children)以及自身(如有副作用)添加到父workInProgress的effect list链表的最后
     // 按照sibling => ... => return => return.sibling => ... 的顺序
     // 走到这里的unitOfWork，表示已经没有children了，所以这里只取sibling和return
@@ -1911,7 +1911,7 @@ function performUnitOfWork(unitOfWork: Fiber): void {
 }
 
 // 完成当前单元任务unitOfWork，然后设置下一个单元任务workInProgress，循环继续执行performUnitOfWork
-// 内部核心逻辑一是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+// 内部核心逻辑一是completeWork，处理与dom相关的更新替换，将workInProgress.stateNode更新为最新的dom(复用或者新创建)，并完成整个dom的子dom结构
 // 内部核心逻辑二是更新父workInProgress的effect list链表，将当前unitOfWork(也就是completedWork)的effect list(只包含其children)以及自身(如有副作用)添加到父workInProgress的effect list链表的最后
 // 按照sibling => ... => return => return.sibling => ... 的顺序
 // 走到这里的unitOfWork，表示已经没有children了，所以这里只取sibling和return
@@ -1942,8 +1942,10 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
       ) {
         // 将completedWork转换为真实dom
         // 这里的工作是处理与dom相关的更新替换，将workInProgress转变为真实dom
-        // 让workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
-        // 原生dom fiber还会diff props初始化dom属性
+        // 处理dom结构，workInProgress的stateNode指向最新的dom，并且有最新的子dom
+        // 1. 复用dom current.stateNode作为workInProgress.stateNode
+        // 2. 或者生成新的dom newInstance，diff新老props生成需要更新的updatePayload，直接更新到newInstance(也就是workInProgress.stateNode)上
+        //    并根据workInProgress.pendingProps设置newInstance的初始属性，然后将workInProgress的所有子节点对应的dom添加到newInstance的dom结构中
         next = completeWork(current, completedWork, subtreeRenderLanes);
       } else {
         // render持续时间累加上completeWork的时间得到最新的render持续时间
@@ -1952,7 +1954,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         startProfilerTimer(completedWork);
         // 将completedWork转换为真实dom
         // 这里的工作是处理与dom相关的更新替换，将workInProgress转变为真实dom
-        // 让workInProgress.stateNode更新为最新的dom(复用(复用有两种，一种是直接替换，另一种是设置workInProgress.updateQueue等到后续提交的时候更新)或者新创建)，并完成整个dom的子dom结构
+        // 让workInProgress.stateNode更新为最新的dom(复用或者新创建)，并完成整个dom的子dom结构
         // 原生dom fiber还会diff props初始化dom属性
         next = completeWork(current, completedWork, subtreeRenderLanes);
         // Update render duration assuming we didn't error.
@@ -2198,7 +2200,7 @@ function resetChildLanes(completedWork: Fiber) {
   completedWork.childLanes = newChildLanes;
 }
 
-// 提交fiberRoot
+// 提交fiberRoot，也就是对root的effect副作用链表上的每一个effect进行处理
 // 这里会走三个阶段before mutation  mutation  layout
 // 更新dom，触发生命周期componentWillUnmounted componentDidMount componentDidUpdate
 // 三个阶段走完，就停止调度，让浏览器绘制页面
@@ -2214,7 +2216,7 @@ function commitRoot(root) {
 }
 
 // 先设置最新的调度优先级，然后会执行这个函数
-// 整个root的提交
+// 整个root的提交，也就是对root的effect副作用链表上的每一个effect进行处理
 // 这里会走三个阶段before mutation  mutation  layout
 // 更新dom，触发生命周期componentWillUnmounted(对应useEffect的返回值函数) componentDidMount(对应useEffect) componentDidUpdate(对应useEffect)
 // 三个阶段走完，就停止调度，让浏览器绘制页面
@@ -2226,6 +2228,15 @@ function commitRootImpl(root, renderPriorityLevel) {
     // no more pending effects.
     // TODO: Might be better if `flushPassiveEffects` did not automatically
     // flush synchronous work at the end, to avoid factoring hazards like this.
+
+    // 处理useEffect的destroy，并重新create
+    // 处理rootFiber对应的effect list中的deletion副作用
+    // 第一步，销毁老的passive effects
+    //    遍历pendingPassiveHookEffectsUnmount，执行每一个effect的destroy方法，并将effect.destroy重置为undefined
+    // 第二步，创建新的passive effects
+    //    遍历pendingPassiveHookEffectsMount，执行每一个effect的create方法，并将返回值给到destroy，用于后续销毁
+    // 第三步，处理自身rootFiber对应的effect list中的deletion副作用
+    // 第四步，flush同步队列syncQueue，因为flushPassiveEffects过程中可能会造成额外的副作用
     flushPassiveEffects();
   } while (rootWithPendingPassiveEffects !== null);
   flushRenderPhaseStrictModeWarningsInDEV();
@@ -2320,8 +2331,8 @@ function commitRootImpl(root, renderPriorityLevel) {
   // Get the list of effects.
   let firstEffect;
   // 更新effect list队列，用于之后的三个阶段的遍历
-  // 这里主要是将自身添加到effect单链表最后(如果自身有副作用)，在这之前，effect单链表只保存其有副作用更新的children
-  // effect list存储了有副作用的fiber，也就是需要更新dom的fiber
+  // 这里主要是将root自身添加到effect单链表最后(如果自身有副作用)，在这之前，effect单链表只保存除root自身外其他所有的有副作用的workInProgress
+  // effect list存储了有副作用的workInProgress，也就是需要更新dom的workInProgress
   if (finishedWork.flags > PerformedWork) {
     // A fiber's effect list consists only of its children, not itself. So if
     // the root has an effect, we need to add it to the end of the list. The
@@ -2385,6 +2396,7 @@ function commitRootImpl(root, renderPriorityLevel) {
     shouldFireAfterActiveInstanceBlur = false;
 
     // 将firstEffect设为nextEffect
+    // 从firstEffect开始遍历，直到effect list的最后一个
     nextEffect = firstEffect;
     // 第一个阶段before mutation
     // 遍历effect list处理删除副作用 需要加载显示的suspense组件 Snapshot副作用 Passive副作用
@@ -2512,7 +2524,8 @@ function commitRootImpl(root, renderPriorityLevel) {
     // Tell Scheduler to yield at the end of the frame, so the browser has an
     // opportunity to paint.
     // 在这一帧结束停止调度，浏览器就可以开始paint页面了
-    // 设置needsPaint为true，表示需要浏览器绘制页面
+    // root有effect list副作用链表，表明需要浏览器绘制页面
+    // 所以在对每个effect执行完三个阶段之后，设置needsPaint为true，表示需要浏览器绘制页面
     // 会在下一次调用shouldYieldToHost(workLoopConcurrent内部循环判断)，
     // 也就是当前帧超时之后，react会中断更新，通过port.postMessage提交一个新的宏任务，这个宏任务用于触发下一个时间分片的更新
     // 这个宏任务会在 下一帧浏览器执行完自己工作之后(这里包括浏览器的页面绘制，也就是绘制这里effect list产生的副作用) 执行
@@ -2546,13 +2559,14 @@ function commitRootImpl(root, renderPriorityLevel) {
     }
   }
 
+  // 到这里，effect list中的每一个effect都已经执行完三个阶段
+
   const rootDidHavePassiveEffects = rootDoesHavePassiveEffects;
 
   if (rootDoesHavePassiveEffects) {
     // This commit has passive effects. Stash a reference to them. But don't
     // schedule a callback until after flushing layout work.
-    // 处理passive副作用，做好引用，在flushing layout work中调度
-
+    // 在提交阶段又产生了新的passive副作用，做好引用，在flushing layout work中调度
     rootDoesHavePassiveEffects = false;
     rootWithPendingPassiveEffects = root;
     pendingPassiveEffectsLanes = lanes;
@@ -2643,9 +2657,7 @@ function commitRootImpl(root, renderPriorityLevel) {
   // Always call this before exiting `commitRoot`, to ensure that any
   // additional work on this root is scheduled.
   // 在退出commitRoot之前总是执行ensureRootIsScheduled，检查是否有额外的工作被调度了
-  // 最后添加的rootWithPendingPassiveEffects是不是在这里调度执行flushPassiveEffects???
-  // 依赖项改变的useEffect副作用函数在这里调度处理，在flushPassiveEffects中执行
-  // 这里useEffect的依赖项一定不变，所以不会触发无限循环的调度ensureRootIsScheduled
+  // 例如，高优先级插队的更新完成后，commit完成后，还会再执行一遍，保证之前跳过的低优先级任务重新调度
   ensureRootIsScheduled(root, now());
 
   // 有错误
@@ -2678,6 +2690,7 @@ function commitRootImpl(root, renderPriorityLevel) {
 
   // If layout work was scheduled, flush it now.
   // 如果有layout工作被调度了，在这里flush
+  // 最后添加的rootWithPendingPassiveEffects在这里调度执行flushPassiveEffects
   flushSyncCallbackQueue();
 
   if (__DEV__) {
@@ -2810,7 +2823,7 @@ function commitMutationEffects(
     const primaryFlags = flags & (Placement | Update | Deletion | Hydrating);
     switch (primaryFlags) {
       case Placement: {
-        // 处理Placement副作用
+        // 处理Placement副作用，仅需要移动位置
 
         // 将nextEffect对应的dom插入到dom结构中的对应位置
         commitPlacement(nextEffect);
@@ -2823,7 +2836,7 @@ function commitMutationEffects(
       }
       case PlacementAndUpdate: {
         // Placement
-        // 处理Placement和Update副作用
+        // 处理Placement和Update副作用，需要移动位置且更新
 
         // 将nextEffect对应的dom插入到dom结构中的对应位置
         commitPlacement(nextEffect);
@@ -2855,6 +2868,7 @@ function commitMutationEffects(
         break;
       }
       case Update: {
+        // 处理Update副作用，仅需要更新
         const current = nextEffect.alternate;
         // 做 销毁 显示/隐藏 更新container 更新dom(根据diff的结构updatePayload) 更新dom文本 的操作
         commitWork(current, nextEffect);
@@ -2941,9 +2955,14 @@ function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
   }
 }
 
-// 这个函数什么时候调用???
-// 这个函数处理依赖项变化的useEffect副作用回调???
-// 清除脏作用，什么意思???
+// 处理useEffect的destroy，并重新create
+// 处理rootFiber对应的effect list中的deletion副作用
+// 第一步，销毁老的passive effects
+//    遍历pendingPassiveHookEffectsUnmount，执行每一个effect的destroy方法，并将effect.destroy重置为undefined
+// 第二步，创建新的passive effects
+//    遍历pendingPassiveHookEffectsMount，执行每一个effect的create方法，并将返回值给到destroy，用于后续销毁
+// 第三步，处理自身rootFiber对应的effect list中的deletion副作用
+// 第四步，flush同步队列syncQueue，因为flushPassiveEffects过程中可能会造成额外的副作用
 export function flushPassiveEffects(): boolean {
   // Returns whether passive effects were flushed.
   if (pendingPassiveEffectsRenderPriority !== NoSchedulerPriority) {
@@ -3024,11 +3043,14 @@ function invokePassiveEffectCreate(effect: HookEffect): void {
 }
 
 // flushPassiveEffects的内部函数
+// 处理useEffect的destroy，并重新create
+// 处理rootFiber对应的effect list中的deletion副作用
 // 第一步，销毁老的passive effects
 //    遍历pendingPassiveHookEffectsUnmount，执行每一个effect的destroy方法，并将effect.destroy重置为undefined
 // 第二步，创建新的passive effects
 //    遍历pendingPassiveHookEffectsMount，执行每一个effect的create方法，并将返回值给到destroy，用于后续销毁
 // 第三步，处理自身rootFiber对应的effect list中的deletion副作用
+// 第四步，flush同步队列syncQueue，因为flushPassiveEffects过程中可能会造成额外的副作用
 function flushPassiveEffectsImpl() {
   // 没有passiveEffects的fiberRoot，直接返回false
   if (rootWithPendingPassiveEffects === null) {
@@ -3199,7 +3221,7 @@ function flushPassiveEffectsImpl() {
   // 这里已经没有passive effects，但是还有root自身的
 
   // root.current指向rootFiber
-  // 处理rootFiber对应的effect list中的deletion副作用
+  // 第三步，处理rootFiber对应的effect list中的deletion副作用
   let effect = root.current.firstEffect;
   while (effect !== null) {
     const nextNextEffect = effect.nextEffect;
@@ -3247,6 +3269,7 @@ function flushPassiveEffectsImpl() {
   // 恢复执行上下文
   executionContext = prevExecutionContext;
 
+  // 第四步，flush同步队列syncQueue，因为flushPassiveEffects过程中可能会造成额外的副作用
   flushSyncCallbackQueue();
 
   // If additional passive effects were scheduled, increment a counter. If this

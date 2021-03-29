@@ -380,7 +380,6 @@ function commitHookEffectListMount(tag: number, finishedWork: Fiber) {
       // 只有当effect.tag的后两位均为1时，才会执行副作用函数
       // 依赖项数组内容发生变化，effect.tag为 0b101(useEffect)/0b011(useLayoutEffect)，没有发生变化为 0b100
       // 这里只有发生变化的useLayoutEffect才会执行副作用回调
-      // 那发生变化的useEffect副作用回调呢???
       if ((effect.tag & tag) === tag) {
         // Mount
         const create = effect.create;

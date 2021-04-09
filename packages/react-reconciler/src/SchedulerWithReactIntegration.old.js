@@ -165,6 +165,7 @@ export function scheduleSyncCallback(callback: SchedulerCallback) {
     // flushWork 函数是作为scheduledCallback执行，其核心逻辑是workLoop
     // workLoop 是fiber架构异步更新的原理
     // 执行流程是 flushWork => flushSyncCallbackQueueImpl => syncQueue中的callback
+    // 设置immediateQueueCallbackNode，说明已经在执行Scheduler_scheduleCallback了
     immediateQueueCallbackNode = Scheduler_scheduleCallback(
       Scheduler_ImmediatePriority,
       // 开始同步回调队列syncQueue，遍历执行队列中的每一个回调

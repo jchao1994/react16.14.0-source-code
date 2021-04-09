@@ -568,6 +568,9 @@ export function resetHooksAfterThrow(): void {
 // 必须保证每次render中的hooks调用完全一样(顺序和类型都相同)
 // 这也就是workInProgressHook不能放在判断嵌套中的原因
 function mountWorkInProgressHook(): Hook {
+  // memoizedState 存储当前值
+  // baseState 存储初始值
+  // next 连接下一个hook对象，形成单链表
   const hook: Hook = {
     memoizedState: null,
 
@@ -668,6 +671,10 @@ function createFunctionComponentUpdateQueue(): FunctionComponentUpdateQueue {
 }
 
 // 返回action函数的返回值或者action
+// setNumber(xxx) 这里的xxx可能是number，也可以是function，对应这里的action
+// 将其处理成number，再返回
+// setNumber(1)
+// setNumber((preNumber) => { return newNumber })
 function basicStateReducer<S>(state: S, action: BasicStateAction<S>): S {
   // $FlowFixMe: Flow doesn't like mixed types
   return typeof action === 'function' ? action(state) : action;
@@ -1225,11 +1232,12 @@ function mountState<S>(
     // $FlowFixMe: Flow doesn't like mixed types
     initialState = initialState();
   }
-  // hook.memoizedState hook.baseState存储当前值
+  // hook.memoizedState 存储当前值
+  // hook.baseState 存储初始值
   hook.memoizedState = hook.baseState = initialState;
   const queue = (hook.queue = {
     pending: null,
-    dispatch: null,
+    dispatch: null, // 存储暴露出去的dispatch方法
     lastRenderedReducer: basicStateReducer,
     lastRenderedState: (initialState: any),
   });
@@ -1240,7 +1248,7 @@ function mountState<S>(
     BasicStateAction<S>,
   > = (queue.dispatch = (dispatchAction.bind(
     null,
-    currentlyRenderingFiber,
+    currentlyRenderingFiber, // 当前正在渲染的fiber
     queue, // hook.queue
   ): any));
   return [hook.memoizedState, dispatch];
@@ -1925,7 +1933,7 @@ function rerenderOpaqueIdentifier(): OpaqueIDType | void {
 function dispatchAction<S, A>(
   fiber: Fiber, // 当前render中的workInProgress currentlyRenderingFiber
   queue: UpdateQueue<S, A>, // 当前hook的queue
-  action: A, // setNumber(xxx)传入的参数xxx
+  action: A, // setNumber(xxx)传入的参数xxx，可能是新值，也可能是返回新值的回调函数
 ) {
   if (__DEV__) {
     if (typeof arguments[3] === 'function') {
@@ -1945,14 +1953,18 @@ function dispatchAction<S, A>(
   // 创建update对象
   const update: Update<S, A> = {
     lane, // 更新lane
-    action, // 新值
-    eagerReducer: null,
-    eagerState: null,
+    action, // 新值 或 返回新值的回调函数
+    eagerReducer: null, // basicStateReducer，用于将action处理成新值
+    eagerState: null, // action处理后的新值
     next: (null: any),
   };
 
   // Append the update to the end of the list.
   // 将新创建的update放在queue.pending队列的最后
+  // 这个步骤和setState相同，都是 ABCDE => A => BA => CAB => DABC => EABCD
+  // 不同的是
+  // useState的dispatch是将创建的update对象是存储在当前hook.queue.pending，而hook是以单链表的形式存储在currentlyRenderingFiber.memoizedState上
+  // setState创建的update对象是存储在fiber.updateQueue.shared.pending
   const pending = queue.pending;
   if (pending === null) {
     // This is the first update. Create a circular list.
@@ -1960,10 +1972,14 @@ function dispatchAction<S, A>(
     update.next = update;
   } else {
     // 将pending添加到update后面，然后建立循环
+    // 顺序 pending => update => pending.next => pending => ... 循环
     update.next = pending.next;
     pending.next = update;
   }
   // 将pending + update新生成的链表给到queue.pending
+  // 顺序 update => pending.next => pending => update => ... 循环
+  // ABCDE => A => BA => CAB => DABC => EABCD
+  // 后续处理的时候会将queue.pending.next作为第一个
   queue.pending = update;
 
   // currentlyRenderingFiber对应的currentFiber
@@ -1999,7 +2015,13 @@ function dispatchAction<S, A>(
           ReactCurrentDispatcher.current = InvalidNestedHooksDispatcherOnUpdateInDEV;
         }
         try {
+          // 当前值
           const currentState: S = (queue.lastRenderedState: any);
+          // setNumber(xxx) 这里的 xxx 可能是number，也可以是function，对应这里的action
+          // 将其处理成number，再返回
+          // setNumber(1)
+          // setNumber((preNumber) => { return newNumber })
+          // eagerState 指向需要修改成的新state
           const eagerState = lastRenderedReducer(currentState, action);
           // Stash the eagerly computed state, and the reducer used to compute
           // it, on the update object. If the reducer hasn't changed by the
@@ -2008,9 +2030,11 @@ function dispatchAction<S, A>(
 
           // 更新update的eagerReducer和eagerState，而update是在queue.pending上
           // 这里将最新的reducer和state暂存在update上，在后续调用到hooks语法时会取出更新好的值，并标记需要接收更新
+          // basicStateReducer 用于将传入的action处理成新值eagerState
           update.eagerReducer = lastRenderedReducer;
+          // action处理之后的新值
           update.eagerState = eagerState;
-          // eagerState和currentState为同一个值，直接return，不需要re-render
+          // eagerState和currentState为同一个值，即新老值相同，直接return，不需要re-render
           if (is(eagerState, currentState)) {
             // Fast path. We can bail out without scheduling React to re-render.
             // It's still possible that we'll need to rebase this update later,
@@ -2027,6 +2051,13 @@ function dispatchAction<S, A>(
         }
       }
     }
+
+    // 走到这里，说明新老值不同，需要更新
+    // 同时，update对象已经处理完毕，而update对象存储在当前hook.queue.pending上
+    // hook对象存储在单链表上(currentlyRenderingFiber.memoizedState)，每次按顺序调用
+    // update.eagerReducer 指向basicStateReducer，用于将action处理成新值
+    // update.eagerState 指向action处理后的新值
+
     if (__DEV__) {
       // $FlowExpectedError - jest isn't a global, and isn't recognized outside of tests
       if ('undefined' !== typeof jest) {
@@ -2037,7 +2068,7 @@ function dispatchAction<S, A>(
     // fiber里的调度更新
     // 内部核心逻辑都是performSyncWorkOnRoot
     // performSyncWorkOnRoot 先执行同步工作renderRootSync，然后提交root
-    // 此时，需要更新的内容已经放在hook.queue.pending末尾新创建的update上了
+    // 此时，需要更新的内容已经放在hook.queue.pending新创建的update上了
     // hook是存放在workInProgress.memoizedState上
     scheduleUpdateOnFiber(fiber, lane, eventTime);
   }

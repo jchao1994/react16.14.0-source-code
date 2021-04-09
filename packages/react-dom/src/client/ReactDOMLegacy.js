@@ -238,6 +238,8 @@ function legacyRenderSubtreeIntoContainer(
     // 该方法中会将executionContext(执行上下文)切换成LegacyUnbatchedContext(非批量上下文)
     // 切换上下文之后再调用updateContainer执行更新操作
     // 执行完updateContainer之后再将executionContext恢复到之前的状态
+    // unbatchedUpdates修改executionContext的目的，是让react更新变成异步的
+    // 初次render的时候，会修改executionContext，让react进入异步更新状态
     unbatchedUpdates(() => {
       // 更新整个react容器，整个fiberRoot的对象树会被整体构建
       updateContainer(children, fiberRoot, parentComponent, callback);
@@ -259,6 +261,7 @@ function legacyRenderSubtreeIntoContainer(
     // 对于非首次挂载来说，是不需要再调用unbatchedUpdates方法的
     // 即不再需要将executionContext(执行上下文)切换成LegacyUnbatchedContext(非批量上下文)
     // 而是直接调用updateContainer执行更新操作
+    // 因为更新渲染一般是通过react合成事件触发，已经修改了executionContext，将react进入异步更新状态，这里不需要重复修改executionContext
     updateContainer(children, fiberRoot, parentComponent, callback);
   }
   // 返回rootFiber.child.stateNode，rootFiber.child对应的组件实例

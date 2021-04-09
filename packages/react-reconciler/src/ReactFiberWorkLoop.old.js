@@ -610,9 +610,16 @@ export function scheduleUpdateOnFiber(
       // 将performSyncWorkOnRoot作为callback推入内部同步队列syncQueue
       // 如果这个callback是第一个，将flushSyncCallbackQueueImpl作为callback设置immediateQueueCallbackNode，直接在next tick调度它
       // 执行流程是flushWork => flushSyncCallbackQueueImpl => performSyncWorkOnRoot
+      // 这里走的更新逻辑，内部是通过MessageChannel实现的异步更新
       ensureRootIsScheduled(root, eventTime);
       // ???
       schedulePendingInteractions(root, lane);
+      // executionContext 代表了目前 react 所处的阶段
+      // 当 executionContext 为 NoContext 时，也就是 react 已经没活干了的状态，这时会去执行 setState/useState 的更新
+      // executionContext 为 空 时，react为同步更新
+      // executionContext 不为 空 时，react为异步更新，因为只走了上述ensureRootIsScheduled(内部更新逻辑是异步的)
+      // 初次render、合成事件触发都会改变 executionContext，实现异步更新
+      // 原生方法，如setTimeout、Promise、MessageChannel、原生事件，不会改变 executionContext，实现同步更新
       if (executionContext === NoContext) {
         // Flush the synchronous work now, unless we're already working or inside
         // a batch. This is intentionally inside scheduleUpdateOnFiber instead of
@@ -1337,6 +1344,7 @@ export function discreteUpdates<A, B, C, D, R>(
 
 // 将executionContext(执行上下文)切换成LegacyUnbatchedContext(非批量上下文)
 // 切换上下文之后再调用fn，之后再将executionContext恢复到之前的状态
+// 修改executionContext的目的，是让react更新变成异步的
 export function unbatchedUpdates<A, R>(fn: (a: A) => R, a: A): R {
   const prevExecutionContext = executionContext;
   executionContext &= ~BatchedContext;
@@ -1649,7 +1657,7 @@ export function renderHasNotSuspendedYet(): boolean {
 function renderRootSync(root: FiberRoot, lanes: Lanes) {
   // 保存当前执行上下文executionContext，用于之后恢复
   const prevExecutionContext = executionContext;
-  // 更新执行上下文executionContext
+  // 更新执行上下文executionContext，让react进入异步更新状态
   executionContext |= RenderContext;
   // 暂存之前的dispatcher，用于之后恢复
   // ReactCurrentDispatcher.current有就取，没有就取ContextOnlyDispatcher
@@ -1754,7 +1762,7 @@ function workLoopSync() {
 function renderRootConcurrent(root: FiberRoot, lanes: Lanes) {
   // 保存当前执行上下文executionContext，用于之后恢复
   const prevExecutionContext = executionContext;
-  // 更新执行上下文executionContext
+  // 更新执行上下文executionContext，让react进入异步更新状态
   executionContext |= RenderContext;
   // 暂存之前的dispatcher，用于之后恢复
   // ReactCurrentDispatcher.current有就取，没有就取ContextOnlyDispatcher

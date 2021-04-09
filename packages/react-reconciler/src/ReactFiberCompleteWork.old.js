@@ -530,6 +530,7 @@ if (supportsMutation) {
     newProps: Props,
     rootContainerInstance: Container,
   ) {
+    // 老的dom
     const currentInstance = current.stateNode;
     const oldProps = current.memoizedProps;
     // If there are no effects associated with this node, then none of our children had any updates.
@@ -542,7 +543,7 @@ if (supportsMutation) {
       workInProgress.stateNode = currentInstance;
       return;
     }
-    // 老的stateNode
+    // 需要回收的stateNode
     const recyclableInstance: Instance = workInProgress.stateNode;
     // 当前上下文context
     const currentHostContext = getHostContext();
@@ -582,6 +583,7 @@ if (supportsMutation) {
     if (
       // 根据workInProgress.pendingProps完成对domElement的设置初始属性
       // 返回是否应该autoFocus
+      // finalizeInitialChildren内部会进行react合成事件的添加
       finalizeInitialChildren(
         newInstance,
         type,

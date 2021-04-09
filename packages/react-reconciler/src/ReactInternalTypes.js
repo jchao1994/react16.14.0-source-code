@@ -257,6 +257,7 @@ export type FiberRoot = {
 type BasicStateAction<S> = (S => S) | S;
 type Dispatch<A> = A => void;
 
+// 包含react hooks的所有类型声明
 export type Dispatcher = {|
   readContext<T>(
     context: ReactContext<T>,

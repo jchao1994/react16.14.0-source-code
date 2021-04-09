@@ -328,6 +328,8 @@ function setInitialDOMProperties(
       // adding a special case here, but then it wouldn't be emitted
       // on server rendering (but we *do* want to emit it in SSR).
     } else if (registrationNameDependencies.hasOwnProperty(propKey)) {
+      // react合成事件在这里绑定，但是这里只处理了onScroll，是不是17.0.1的bug???
+      // 暂时先看 16.13.1 和 17.0.2
       if (nextProp != null) {
         if (__DEV__ && typeof nextProp !== 'function') {
           warnForInvalidEventListener(propKey, nextProp);

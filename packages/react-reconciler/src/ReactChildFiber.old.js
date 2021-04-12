@@ -868,6 +868,7 @@ function ChildReconciler(shouldTrackSideEffects) {
   // 第二轮遍历结束，把existingChildren中剩下的标记删除副作用
   // 删除处理，这里仅仅是标记删除副作用Deletion，且将需要删除的fiber添加到父fiber的effect链表最后
   // 而处理删除副作用的时机是在提交阶段
+  // react dom diff的时间复杂度为 O(n)
   function reconcileChildrenArray(
     returnFiber: Fiber, // 父workInProgress
     currentFirstChild: Fiber | null, // 父currentFiber的第一个子fiber

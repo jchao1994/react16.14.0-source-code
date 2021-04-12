@@ -9,8 +9,9 @@ import {REACT_MEMO_TYPE} from 'shared/ReactSymbols';
 
 import isValidElementType from 'shared/isValidElementType';
 
+// 用法 memo(Component)
 export function memo<Props>(
-  type: React$ElementType,
+  type: React$ElementType, // 函数组件的构造函数
   compare?: (oldProps: Props, newProps: Props) => boolean,
 ) {
   if (__DEV__) {

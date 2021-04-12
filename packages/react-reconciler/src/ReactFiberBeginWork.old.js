@@ -396,15 +396,19 @@ function updateForwardRef(
   return workInProgress.child;
 }
 
+// React.memo(Component)
+// 只有当传入的compare比较新老props和新老ref相同，且源Component对应的workInProgress没有更新，才会返回null，
+// 也就是源Component对应的workInProgress不执行performUnitOfWork => renderWithHooks
 function updateMemoComponent(
   current: Fiber | null,
   workInProgress: Fiber,
-  Component: any,
-  nextProps: any,
+  Component: any, // 源Component的构造函数
+  nextProps: any, // 处理完毕的新props
   updateLanes: Lanes,
   renderLanes: Lanes,
 ): null | Fiber {
   if (current === null) {
+    // 没有current，首次渲染
     const type = Component.type;
     if (
       isSimpleFunctionComponent(type) &&
@@ -446,6 +450,7 @@ function updateMemoComponent(
         );
       }
     }
+    // 创建源Component的fiber，作为React.memo(Component)的child fiber
     const child = createFiberFromTypeAndProps(
       Component.type,
       null,
@@ -459,6 +464,9 @@ function updateMemoComponent(
     workInProgress.child = child;
     return child;
   }
+
+  // 下面的逻辑是存在current，也就是可复用的情况
+
   if (__DEV__) {
     const type = Component.type;
     const innerPropTypes = type.propTypes;
@@ -473,6 +481,7 @@ function updateMemoComponent(
       );
     }
   }
+  // React.memo只可能有一个child
   const currentChild = ((current.child: any): Fiber); // This is always exactly one child
   if (!includesSomeLane(updateLanes, renderLanes)) {
     // This will be the props with resolved defaultProps,
@@ -480,7 +489,12 @@ function updateMemoComponent(
     const prevProps = currentChild.memoizedProps;
     // Default to shallow comparison
     let compare = Component.compare;
+    // 默认采用shallowEqual
     compare = compare !== null ? compare : shallowEqual;
+    // 新老props和ref都相同，查看children是否需要更新
+    // compare比较是在React.memo(Component)这一层fiber上的
+    // 如果在这里return出去且children(也就是实际源Component对应的workInProgress)没有更新，那么实际源Component对应的workInProgress不会执行performUnitOfWork => renderWithHooks
+    // 如果children(也就是实际源Component对应的workInProgress)发生了更新，这里依旧会返回children的拷贝fiber，进行performUnitOfWork => renderWithHooks
     if (compare(prevProps, nextProps) && current.ref === workInProgress.ref) {
       return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
     }
@@ -491,6 +505,8 @@ function updateMemoComponent(
   newChild.ref = workInProgress.ref;
   newChild.return = workInProgress;
   workInProgress.child = newChild;
+  // 返回的newChild才是实际源Component对应的workInProgress
+  // 然后这个workInProgress就会执行performUnitOfWork => renderWithHooks
   return newChild;
 }
 
@@ -716,11 +732,12 @@ function markRef(current: Fiber | null, workInProgress: Fiber) {
   }
 }
 
+// 函数组件
 function updateFunctionComponent(
   current,
   workInProgress,
-  Component, // 构造函数
-  nextProps: any,
+  Component, // workInProgress.type 函数组件的构造函数
+  nextProps: any, // 处理过的新props
   renderLanes,
 ) {
   if (__DEV__) {
@@ -792,7 +809,11 @@ function updateFunctionComponent(
     );
   }
 
-  // 不需要更新
+  // 下面的逻辑与类组件类似
+  // 不同的是，没有另外的shouldUpdate标志是否应该更新，而是通过didReceiveUpdate，新老state不同，就会标记didReceiveUpdate为true
+  // 而且函数组件通过renderWithHooks来生成nextChildren(在到达这里之前已经生成)，类组件通过组件实例的render函数生成nextChildren(在这里之后才执行render生成)
+
+  // 不需要更新，也就是新老state相同
   // didReceiveUpdate为true，就一定会走reconcileChildren逻辑render
   if (current !== null && !didReceiveUpdate) {
     // workInProgress复用current.updateQueue
@@ -803,6 +824,8 @@ function updateFunctionComponent(
     // workInProgress的children有更新工作，就clone出新的children并返回workInProgress.child作为下一个单元工作
     return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
   }
+
+  // 走到这里，说明新老state不同，也就是didReceiveUpdate为true，需要更新
 
   // React DevTools reads this flag.
   // 添加PerformedWork副作用，给React DevTools读取
@@ -884,14 +907,14 @@ function updateBlock<Props, Data>(
   return workInProgress.child;
 }
 
-// 先进行更新类组件前的工作以及调用相关生命周期得到shouldUpdate
+// 先进行更新类组件前的工作(包括根据workInProgress.updateQueue.shared.pending生成newState，对比新老props和新老state)以及调用相关生命周期得到shouldUpdate
 // 然后根据shouldUpdate进行协调children，做dom diff并返回workInProgress.child作为下一个单元任务
 // 这里还会添加ref副作用(如果ref变化)
 function updateClassComponent(
   current: Fiber | null,
   workInProgress: Fiber,
-  Component: any, // workInProgress.type
-  nextProps: any, // 新props
+  Component: any, // workInProgress.type 类组件的组件构造器
+  nextProps: any, // 处理过的新props
   renderLanes: Lanes,
 ) {
   if (__DEV__) {
@@ -928,7 +951,7 @@ function updateClassComponent(
   // 组件实例
   const instance = workInProgress.stateNode;
   let shouldUpdate;
-  // 做更新前的处理，判断是否shouldUpdate
+  // 做更新前的处理(包括根据workInProgress.updateQueue.shared.pending生成newState，对比新老props和新老state)，判断是否shouldUpdate
   // 调用更新前的生命周期，并为更新后需要调用的生命周期加上副作用
   // 这里包括处理workInProgress.updateQueue.shared.pending和workInProgress.updateQueue的baseUpdate链表，生成新state
   // workInProgress.memoizedState指向最新的state
@@ -989,7 +1012,7 @@ function updateClassComponent(
     // 为componentDidMount加上update副作用
     // 最后更新workInProgress的memoizedProps和memoizedState以及组件实例的props state context
     // 返回shouldUpdate
-    // 这里不执行更新，只是做更新前的处理，判断是否应该update
+    // 这里不执行更新，只是做更新前的处理(包括根据workInProgress.updateQueue.shared.pending生成newState，对比新老props和新老state)，判断是否应该update
     shouldUpdate = resumeMountClassInstance(
       workInProgress,
       Component,
@@ -1006,7 +1029,7 @@ function updateClassComponent(
     // 为componentDidUpdate和getSnapshotBeforeUpdate加上update和snapshot副作用
     // 最后更新workInProgress的memoizedProps和memoizedState以及组件实例的props state context
     // 返回shouldUpdate
-    // 这里不执行更新，只是做更新前的处理，判断是否应该update
+    // 这里不执行更新，只是做更新前的处理(包括根据workInProgress.updateQueue.shared.pending生成newState，对比新老props和新老state)，判断是否应该update
     shouldUpdate = updateClassInstance(
       current,
       workInProgress,
@@ -1058,8 +1081,8 @@ function updateClassComponent(
 function finishClassComponent(
   current: Fiber | null,
   workInProgress: Fiber,
-  Component: any,
-  shouldUpdate: boolean,
+  Component: any, // 类组件的组件构造器
+  shouldUpdate: boolean, // 是否应该更新
   hasContext: boolean,
   renderLanes: Lanes,
 ) {
@@ -1524,8 +1547,9 @@ function mountIncompleteClassComponent(
   );
 }
 
+// 不确定是函数组件还是类组件
 function mountIndeterminateComponent(
-  _current,
+  _current, // currentFiber
   workInProgress,
   Component,
   renderLanes,
@@ -3567,12 +3591,11 @@ function beginWork(
 
   switch (workInProgress.tag) {
     case IndeterminateComponent: {
-      // 不确定组件
+      // 不确定是函数组件还是类组件
       return mountIndeterminateComponent(
         current,
         workInProgress,
-        workInProgress.type,
-    
+        workInProgress.type, // 函数组件的构造函数/类组件的构造器
         renderLanes,
       );
     }
@@ -3590,8 +3613,9 @@ function beginWork(
       // 函数组件
       // workInProgress的type上存放构造函数
       const Component = workInProgress.type;
+      // 未处理的过的新props
       const unresolvedProps = workInProgress.pendingProps;
-      // 新的props，带defaultProps
+      // 处理完毕的新props，带defaultProps
       const resolvedProps =
         workInProgress.elementType === Component
           ? unresolvedProps
@@ -3608,8 +3632,9 @@ function beginWork(
       // 类组件
       // workInProgress的type存放组件构造器
       const Component = workInProgress.type;
+      // 未处理的新props
       const unresolvedProps = workInProgress.pendingProps;
-      // 新props，带defaultProps
+      // 处理完毕的新props，带defaultProps
       const resolvedProps =
         workInProgress.elementType === Component
           ? unresolvedProps
@@ -3668,9 +3693,15 @@ function beginWork(
     case ContextConsumer:
       return updateContextConsumer(current, workInProgress, renderLanes);
     case MemoComponent: {
+      // React.memo组件
+      // React.memo(Component)
+
+      // workInProgress.type 指向 源Component，也就是函数组件的构造函数
       const type = workInProgress.type;
+      // 未处理的新props
       const unresolvedProps = workInProgress.pendingProps;
       // Resolve outer props first, then resolve inner props.
+      // 处理React.memo完毕的新props
       let resolvedProps = resolveDefaultProps(type, unresolvedProps);
       if (__DEV__) {
         if (workInProgress.type !== workInProgress.elementType) {
@@ -3685,7 +3716,10 @@ function beginWork(
           }
         }
       }
+      // 处理源Component完毕的新props
       resolvedProps = resolveDefaultProps(type.type, resolvedProps);
+      // 只有当传入的compare比较新老props和新老ref相同，且源Component对应的workInProgress没有更新，才会返回null，
+      // 也就是源Component对应的workInProgress不执行performUnitOfWork => renderWithHooks
       return updateMemoComponent(
         current,
         workInProgress,

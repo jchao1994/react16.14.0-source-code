@@ -2229,6 +2229,10 @@ function commitRoot(root) {
 // 更新dom，触发生命周期componentWillUnmounted(对应useEffect的返回值函数) componentDidMount(对应useEffect) componentDidUpdate(对应useEffect)
 // 三个阶段走完，就停止调度，让浏览器绘制页面
 function commitRootImpl(root, renderPriorityLevel) {
+  // commit开始执行flushPassiveEffects，内部会处理useEffect
+  // 这和useEffect异步调度的特点有关，它以一般的优先级被调度，这就意味着一旦有更高优先级的任务进入到commit阶段，上一次任务的useEffect还没得到执行
+  // 所以在本次更新开始前，需要先将之前的useEffect都执行掉，以保证本次调度的useEffect都是本次更新产生的
+  // 这里执行flushPassiveEffects是同步的，也就是调度上一次任务遗留下来的useEffect的过程是同步的
   do {
     // `flushPassiveEffects` will call `flushSyncUpdateQueue` at the end, which
     // means `flushPassiveEffects` will sometimes result in additional
@@ -2407,7 +2411,7 @@ function commitRootImpl(root, renderPriorityLevel) {
     // 从firstEffect开始遍历，直到effect list的最后一个
     nextEffect = firstEffect;
     // 第一个阶段before mutation
-    // 遍历effect list处理删除副作用 需要加载显示的suspense组件 Snapshot副作用 Passive副作用
+    // 遍历effect list处理删除副作用 需要加载显示的suspense组件 Snapshot副作用 Passive副作用(只关于useEffect且是异步调度，不包含useLayoutEffect)
     do {
       if (__DEV__) {
         invokeGuardedCallback(null, commitBeforeMutationEffects, null);
@@ -2420,7 +2424,7 @@ function commitRootImpl(root, renderPriorityLevel) {
       } else {
         try {
           // 第一个阶段before mutation
-          // 遍历effect list处理删除副作用 需要加载显示的suspense组件 Snapshot副作用 Passive副作用
+          // 遍历effect list处理删除副作用 需要加载显示的suspense组件 Snapshot副作用 Passive副作用(只关于useEffect且是异步调度，不包含useLayoutEffect)
           commitBeforeMutationEffects();
         } catch (error) {
           invariant(nextEffect !== null, 'Should be working on an effect.');
@@ -2463,10 +2467,10 @@ function commitRootImpl(root, renderPriorityLevel) {
         }
       } else {
         try {
-          // 第二个阶段mutation
+          // 第二阶段mutation
           // 遍历effect list，处理ContentReset Ref Placement Update Deletion Hydrating副作用
           // 这里保留ContentReset和Ref，删除Placement Update Deletion Hydrating
-          // 这里会调用componentWillUnmount，以及useEffect的返回值函数
+          // 这里会调用componentWillUnmount，以及useLayoutEffect的返回值函数destroy并将其重置为undefined
           commitMutationEffects(root, renderPriorityLevel);
         } catch (error) {
           invariant(nextEffect !== null, 'Should be working on an effect.');
@@ -2500,6 +2504,7 @@ function commitRootImpl(root, renderPriorityLevel) {
     //    触发componentDidMount或componentDidUpdate
     //    清空updateQueue以其所有effect的callback
     //    触发自动聚焦autoFocus
+    //    执行useLayoutEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
     nextEffect = firstEffect;
     do {
       if (__DEV__) {
@@ -2514,10 +2519,10 @@ function commitRootImpl(root, renderPriorityLevel) {
         try {
           // 第三个阶段layout
           // 遍历effect list
-          //    触发componentDidMount或componentDidUpdate
-          //    清空updateQueue以其所有effect的callback
-          //    触发自动聚焦autoFocus
-          //    执行useEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
+          // FunctionComponent  执行useLayoutEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
+          // ClassComponent  触发componentDidMount或componentDidUpdate，清空updateQueue以其所有effect的callback
+          // HostRoot  处理子child，清空updateQueue以其所有effect的callback
+          // HostComponent  触发自动聚焦autoFocus
           commitLayoutEffects(root, lanes);
         } catch (error) {
           invariant(nextEffect !== null, 'Should be working on an effect.');
@@ -2766,8 +2771,13 @@ function commitBeforeMutationEffects() {
       // If there are passive effects, schedule a callback to flush at
       // the earliest opportunity.
       if (!rootDoesHavePassiveEffects) {
+        // 标记rootDoesHavePassiveEffects，避免重复调度useEffect
         rootDoesHavePassiveEffects = true;
         // 根据优先级调度callback，返回newTask
+        // 异步调用flushPassiveEffects
+        // useEffect对应的fiber有 Update | Passive 副作用
+        // 而useLayoutEffect对应的fiber只有 Update 副作用
+        // 所有这里异步处理的是useEffect
         scheduleCallback(NormalSchedulerPriority, () => {
           flushPassiveEffects();
           return null;
@@ -2782,7 +2792,7 @@ function commitBeforeMutationEffects() {
 // 第二阶段mutation
 // 遍历effect list，处理ContentReset Ref Placement Update Deletion Hydrating副作用
 // 这里保留ContentReset和Ref，删除Placement Update Deletion Hydrating
-// 这里会调用componentWillUnmount，以及useEffect的返回值函数
+// 这里会调用componentWillUnmount，以及useLayoutEffect的返回值函数destroy
 function commitMutationEffects(
   root: FiberRoot,
   renderPriorityLevel: ReactPriorityLevel,
@@ -2878,15 +2888,19 @@ function commitMutationEffects(
       case Update: {
         // 处理Update副作用，仅需要更新
         const current = nextEffect.alternate;
-        // 做 销毁 显示/隐藏 更新container 更新dom(根据diff的结构updatePayload) 更新dom文本 的操作
+        // 做 销毁 显示/隐藏 更新container 更新dom(根据diff的结构updatePayload) 更新dom文本 执行useLayoutEffect的destroy 的操作
         commitWork(current, nextEffect);
         break;
       }
       case Deletion: {
         // 处理Deletion副作用
         // 提交删除，对current及其children(这也可能还有sibling)做卸载，移除dom结构
-        // 这里会调用componentWillUnmount，以及useEffect的返回值函数
-        // 最后重置nextEffect及其对应的currentFiber
+        // FunctionComponent/Block 对需要删除的effect执行destroy方法，destroy也就是useEffect(异步调度)/useLayoutEffect(同步调度)的返回值函数
+        // ClassComponent 重置ref，调用用户传入的componentWillUnmount方法
+        // HostComponent 重置ref
+        // portal组件 重置container
+        // 最后重置current及其对应的currentFiber
+        // 只对根节点的dom结构进行移除，子节点的dom自然就移除了，不需要对子节点的dom进行额外的移除操作
         commitDeletion(root, nextEffect, renderPriorityLevel);
         break;
       }
@@ -2900,10 +2914,10 @@ function commitMutationEffects(
 
 // 第三个阶段layout
 // 遍历effect list
-//    触发componentDidMount或componentDidUpdate
-//    清空updateQueue以其所有effect的callback
-//    触发自动聚焦autoFocus
-//    执行useEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
+// FunctionComponent  执行useLayoutEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
+// ClassComponent  触发componentDidMount或componentDidUpdate，清空updateQueue以其所有effect的callback
+// HostRoot  处理子child，清空updateQueue以其所有effect的callback
+// HostComponent  触发自动聚焦autoFocus
 function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
   if (__DEV__) {
     if (enableDebugTracing) {
@@ -2923,13 +2937,16 @@ function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
     const flags = nextEffect.flags;
 
     // 处理Update和Callback副作用
+    // hooks函数组件的useEffect，如果有依赖项且不变，那么当前nextEffect的flags就不会有Update副作用
+    // 也就不会执行commitLayoutEffectOnFiber
+    // commitLayoutEffectOnFiber内部就是执行useLayoutEffect的回调函数
     if (flags & (Update | Callback)) {
       const current = nextEffect.alternate;
       // 提交生命周期
-      // 触发componentDidMount或componentDidUpdate
-      // 清空updateQueue以其所有effect的callback
-      // 触发自动聚焦autoFocus
-      // 执行useEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
+      // FunctionComponent  执行useLayoutEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
+      // ClassComponent  触发componentDidMount或componentDidUpdate，清空updateQueue以其所有effect的callback
+      // HostRoot  处理子child，清空updateQueue以其所有effect的callback
+      // HostComponent  触发自动聚焦autoFocus
       commitLayoutEffectOnFiber(root, current, nextEffect, committedLanes);
     }
 

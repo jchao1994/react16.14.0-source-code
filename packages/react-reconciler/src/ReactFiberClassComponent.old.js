@@ -878,7 +878,9 @@ function mountClassInstance(
   }
 
   const instance = workInProgress.stateNode;
+  // 处理过的新props
   instance.props = newProps;
+  // 老state
   instance.state = workInProgress.memoizedState;
   instance.refs = emptyRefsObject;
 
@@ -943,7 +945,7 @@ function mountClassInstance(
   //     workInProgress.lanes = NoLanes
   //     workInProgress.memoizedState = newState(新state)
   processUpdateQueue(workInProgress, newProps, instance, renderLanes);
-  // 更新instance.state，这里的memoizedState可能是部分更新完成后的newState，也可能是全部更新完成后的newState
+  // 更新instance.state为newState，这里的memoizedState可能是部分更新完成后的newState，也可能是全部更新完成后的newState
   instance.state = workInProgress.memoizedState;
 
   // 用户传入的getDerivedStateFromProps(props, state)生命周期
@@ -1223,8 +1225,9 @@ function updateClassInstance(
   // 将currentFiber的updateQueue克隆到workInProgress.updateQueue上
   cloneUpdateQueue(current, workInProgress);
 
-  // 获取老的props，这里面有defaultProps
+  // 获取未处理的老props，这里面有defaultProps
   const unresolvedOldProps = workInProgress.memoizedProps;
+  // 处理完毕的老props
   const oldProps =
     workInProgress.type === workInProgress.elementType
       ? unresolvedOldProps
@@ -1361,6 +1364,9 @@ function updateClassInstance(
   // 根据hasForceUpdate shouldComponentUpdate PureReactComponent设置shouldUpdate
   const shouldUpdate =
     checkHasForceUpdateAfterProcessing() ||
+    // 根据shouldComponentUpdate生命周期，或者PureReactComponent
+    // 对新老props和新老state做对比，返回shouldUpdate
+    // 如果两个都没有，默认返回true
     checkShouldComponentUpdate(
       workInProgress,
       ctor,

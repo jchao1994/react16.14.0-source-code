@@ -349,13 +349,13 @@ function areHookInputsEqual(
 export function renderWithHooks<Props, SecondArg>(
   current: Fiber | null,
   workInProgress: Fiber,
-  Component: (p: Props, arg: SecondArg) => any, // 构造函数
-  props: Props, // nextProps
+  Component: (p: Props, arg: SecondArg) => any, // 函数组件的构造函数
+  props: Props, // 处理过的新props
   secondArg: SecondArg, // context
   nextRenderLanes: Lanes,
 ): any {
   renderLanes = nextRenderLanes;
-  // 当前正在render的workInProgress
+  // 全局标记当前正在render的workInProgress
   currentlyRenderingFiber = workInProgress;
 
   if (__DEV__) {
@@ -369,9 +369,9 @@ export function renderWithHooks<Props, SecondArg>(
       current !== null && current.type !== workInProgress.type;
   }
 
-  // 有currentlyRenderingFiber指向workInProgress
-  // 这里将重置workInProgress的memoizedState updateQueue lanes
+  // 下面三个属性 memoizedState updateQueue lanes 用于类组件，这里是hooks函数组件，重置为空
   workInProgress.memoizedState = null;
+  // hooks函数组件的updateQueue用于存放useEffect对应的effect对象循环单链表
   workInProgress.updateQueue = null;
   workInProgress.lanes = NoLanes;
 
@@ -406,14 +406,15 @@ export function renderWithHooks<Props, SecondArg>(
       ReactCurrentDispatcher.current = HooksDispatcherOnMountInDEV;
     }
   } else {
-    // 根据mount/update设置ReactCurrentDispatcher.current，指向对应的hooks
+    // 根据 是否有老currentFiber 设置ReactCurrentDispatcher.current，指向对应的hooks
+    // hooks虽然都是一样使用，但是在 mount 和 update 中的hooks的内部实现是不同的
     ReactCurrentDispatcher.current =
       current === null || current.memoizedState === null
         ? HooksDispatcherOnMount
         : HooksDispatcherOnUpdate;
   }
 
-  // 执行构造函数，返回构造函数return的结果，即children
+  // 执行构造函数，返回构造函数return的结果，即子节点的reactElement对象
   // 这里会执行hooks相关方法
   let children = Component(props, secondArg);
 
@@ -465,7 +466,8 @@ export function renderWithHooks<Props, SecondArg>(
 
   // We can assume the previous dispatcher is always this one, since we set it
   // at the beginning of the render phase and there's no re-entrancy.
-  // 设置ReactCurrentDispatcher.current为contextOnly的hooks
+  // 设置ReactCurrentDispatcher.current为contextOnly的hooks、
+  // 这个是恢复原来的dispatcher
   ReactCurrentDispatcher.current = ContextOnlyDispatcher;
 
   if (__DEV__) {
@@ -561,8 +563,8 @@ export function resetHooksAfterThrow(): void {
 }
 
 // 新建一个hook对象，将这个hook对象添加到workInProgressHook的最后
-// currentlyRenderingFiber.memoizedState指向workInProgressHook链表
-// 返回workInProgressHook，也就是第一个workInProgressHook，不一定是新创建的hook
+// currentlyRenderingFiber.memoizedState指向workInProgressHook链表的首个hook
+// 返回指向当前hook对象的workInProgressHook
 
 // workInProgressHook是按照先后顺序存放的，所以每次render的顺序变了就会出错
 // 必须保证每次render中的hooks调用完全一样(顺序和类型都相同)
@@ -572,7 +574,7 @@ function mountWorkInProgressHook(): Hook {
   // baseState 存储初始值
   // next 连接下一个hook对象，形成单链表
   const hook: Hook = {
-    memoizedState: null,
+    memoizedState: null, // 存储当前值
 
     baseState: null,
     baseQueue: null,
@@ -583,7 +585,7 @@ function mountWorkInProgressHook(): Hook {
 
   if (workInProgressHook === null) {
     // This is the first hook in the list
-    // currentlyRenderingFiber.memoizedState指向workInProgressHook链表
+    // currentlyRenderingFiber.memoizedState指向workInProgressHook链表的首个hook对象
     currentlyRenderingFiber.memoizedState = workInProgressHook = hook;
   } else {
     // Append to the end of the list
@@ -595,6 +597,8 @@ function mountWorkInProgressHook(): Hook {
 // 获取下一个workInProgressHook
 // workInProgressHook是链表结构
 // 调用hooks时按顺序依次取链表中的hook，这里每次render的顺序必须一致
+// 如果currentlyRenderingFiber上有当前hook对象，直接取出返回
+// 如果没有，取currentlyRenderingFiber对应的currentFiber上的当前hook对象，拷贝一个新的hook对象添加到workInProgressHook末尾并返回
 function updateWorkInProgressHook(): Hook {
   // This function is used both for updates and for re-renders triggered by a
   // render phase update. It assumes there is either a current hook we can
@@ -607,7 +611,7 @@ function updateWorkInProgressHook(): Hook {
     // 当前rendering的workInProgress对应的currentFiber
     const current = currentlyRenderingFiber.alternate;
     if (current !== null) {
-      // currentFiber.memoizedState指向下一个current hook???
+      // currentFiber.memoizedState指向下一个currentFiberHook的首个hook对象
       nextCurrentHook = current.memoizedState;
     } else {
       nextCurrentHook = null;
@@ -618,13 +622,16 @@ function updateWorkInProgressHook(): Hook {
 
   // 获取下一个workInProgress hook
   let nextWorkInProgressHook: null | Hook;
+  // 设置nextWorkInProgressHook，之后赋给workInProgressHook
   if (workInProgressHook === null) {
-    // workInProgress.memoizedState指向下一个workInProgress hook
+    // workInProgress.memoizedState指向workInProgressHook链表的首个hook对象
     nextWorkInProgressHook = currentlyRenderingFiber.memoizedState;
   } else {
     nextWorkInProgressHook = workInProgressHook.next;
   }
 
+  // 如果currentlyRenderingFiber上有当前hook对象，直接取出返回
+  // 如果没有，取currentlyRenderingFiber对应的currentFiber上的当前hook对象，拷贝一个新的hook对象添加到workInProgressHook末尾并返回
   if (nextWorkInProgressHook !== null) {
     // There's already a work-in-progress. Reuse it.
     // 还有下一个workInProgress hook，指向下一个
@@ -687,6 +694,9 @@ function mountReducer<S, I, A>(
   initialArg: I, // 初始值
   init?: I => S, // 若传入这个，初始值会被设为init(initialArg)
 ): [S, Dispatch<A>] {
+  // 新建一个hook对象，将这个hook对象添加到workInProgressHook的最后
+  // currentlyRenderingFiber.memoizedState指向workInProgressHook链表的首个hook
+  // 返回指向当前hook对象的workInProgressHook
   const hook = mountWorkInProgressHook();
   let initialState;
   // 获取初始值
@@ -695,7 +705,9 @@ function mountReducer<S, I, A>(
   } else {
     initialState = ((initialArg: any): S);
   }
+  // 设置当前值和初始值
   hook.memoizedState = hook.baseState = initialState;
+  // 状态更新队列 hook.queue
   const queue = (hook.queue = {
     pending: null,
     dispatch: null,
@@ -716,8 +728,11 @@ function updateReducer<S, I, A>(
   initialArg: I,
   init?: I => S,
 ): [S, Dispatch<A>] {
-  // 获取下一个workInProgressHook
-  // 也就是调用hook语法的时候，拿到链表workInProgressHook中 当前hook语法 对应的hook对象
+  // 获取下一个workInProgressHook，也就是调用hook语法的时候，拿到链表workInProgressHook中 当前hook语法 对应的hook对象
+  // workInProgressHook是链表结构
+  // 调用hooks时按顺序依次取链表中的hook，这里每次render的顺序必须一致
+  // 如果currentlyRenderingFiber上有当前hook对象，直接取出返回
+  // 如果没有，取currentlyRenderingFiber对应的currentFiber上的当前hook对象，拷贝一个新的hook对象添加到workInProgressHook末尾并返回
   const hook = updateWorkInProgressHook();
   // hook对应的queue
   const queue = hook.queue;
@@ -738,18 +753,19 @@ function updateReducer<S, I, A>(
   let baseQueue = current.baseQueue;
 
   // The last pending update that hasn't been processed yet.
-  // queue.pending末尾新创建的update存放需要更新的内容
+  // queue.pending存放的是需要更新的update对象的循环单链表
   const pendingQueue = queue.pending;
   if (pendingQueue !== null) {
     // We have new updates that haven't been processed yet.
     // We'll add them to the base queue.
     // 有需要更新的内容，
 
+    // currentHook.baseQueue 存放 pendingQueue => baseQueue => 循环 循环单链表
+    // hook.queue.pending 存放 baseQueue => pendingQueue => 循环 循环单链表
     if (baseQueue !== null) {
       // Merge the pending queue and the base queue.
       // 合并pendingQueue到baseQueue末尾
       // 合并baseQueue到pendingQueue末尾
-      // 形成循环???
       const baseFirst = baseQueue.next;
       const pendingFirst = pendingQueue.next;
       baseQueue.next = pendingFirst;
@@ -765,8 +781,9 @@ function updateReducer<S, I, A>(
         );
       }
     }
-    // current.baseQueu最终存储baseQueue + pendingQueue
+    // current.baseQueu最终存储 baseQueue => pendingQueue => 循环 循环单链表
     current.baseQueue = baseQueue = pendingQueue;
+    // 清空 hook.queue.pending
     queue.pending = null;
   }
 
@@ -883,7 +900,7 @@ function updateReducer<S, I, A>(
   }
 
   const dispatch: Dispatch<A> = (queue.dispatch: any);
-  // 返回新值以及dispatch
+  // 返回新值以及dispatch，返回新值之后继续执行函数组件的构造函数，最终以新值生成组件的根节点reactElement对象作为nextChildren
   return [hook.memoizedState, dispatch];
 }
 
@@ -1224,17 +1241,19 @@ function mountState<S>(
   initialState: (() => S) | S,
 ): [S, Dispatch<BasicStateAction<S>>] {
   // 新建一个hook对象，将这个hook对象添加到workInProgressHook的最后
-  // currentlyRenderingFiber.memoizedState指向workInProgressHook链表
-  // 返回workInProgressHook，也就是第一个workInProgressHook，不一定是新创建的hook
+  // currentlyRenderingFiber.memoizedState指向workInProgressHook链表的首个hook
+  // 返回指向当前hook对象的workInProgressHook
   const hook = mountWorkInProgressHook();
   // useState可以传入回调，初值就是回调的返回值
   if (typeof initialState === 'function') {
     // $FlowFixMe: Flow doesn't like mixed types
     initialState = initialState();
   }
-  // hook.memoizedState 存储当前值
-  // hook.baseState 存储初始值
+  // hook.memoizedState 存储当前值，当前值每次调用dispatch就会改变
+  // hook.baseState 存储初始值，初始值设置之后不会变
   hook.memoizedState = hook.baseState = initialState;
+  // hook.queue.pending 与 类组件的workInProgress.updateQueue.shared.pending 作用相同
+  // 是存放 dispatch(类组件是setState) 的更新内容对应的update对象的单链表结构
   const queue = (hook.queue = {
     pending: null,
     dispatch: null, // 存储暴露出去的dispatch方法
@@ -1243,7 +1262,7 @@ function mountState<S>(
   });
   // 生成dispatch，用于修改memoizedState
   // 执行dispatch，会把新的reducer和state更新到hook.queue.pending.update中
-  // hook是存放currentlyRenderingFiber.memoizedState中的workInProgressHook
+  // hook是存放在currentlyRenderingFiber.memoizedState中的workInProgressHook单链表中
   const dispatch: Dispatch<
     BasicStateAction<S>,
   > = (queue.dispatch = (dispatchAction.bind(
@@ -1256,6 +1275,8 @@ function mountState<S>(
 
 // [number, setNumber] = useState('')
 // [number, setNumber] = useState(()=>{})
+// setNumber(0)
+// setNumber(preNum => 0)
 function updateState<S>(
   initialState: (() => S) | S,
 ): [S, Dispatch<BasicStateAction<S>>] {
@@ -1268,19 +1289,30 @@ function rerenderState<S>(
   return rerenderReducer(basicStateReducer, (initialState: any));
 }
 
-// 创建新的effect对象放在当前workInProgress的updateQueue的末尾，返回这个effect
+// tag  HookHasEffect | HookPassive
+// create useEffect的回调函数
+// destroy useEffect的回调函数的return函数
+// deps 依赖项数组，不传则为null
+// 创建新的effect对象放在当前workInProgress的updateQueue的循环单链表上，返回这个effect
+// 这个effect对象用于描述这个useEffect的行为
+// workInProgress.updateQueue.lastEffect 指向最后添加的effect对象，也就是最后一次执行的effect对象
+// ABCDE => A => BA => CAB => DABC => EABCD
 function pushEffect(tag, create, destroy, deps) {
-  // 创建一个新的effect对象
+  // 创建一个新的effect对象，这个effect对象用于描述这个useEffect的行为
   const effect: Effect = {
-    tag, // HookHasEffect | hookFlags
+    tag, // HookHasEffect | HookPassive
     create, // useEffect的副作用回调
-    destroy, // useEffect的return函数
+    destroy, // useEffect的回调函数的return函数
     deps, // 依赖项数组
-    // Circular // 循环
+    // Circular // next用于循环单链表
     next: (null: any),
   };
-  // 当前workInProgress的updateQueue
+  // 当前正在渲染中的workInProgress的updateQueue
   let componentUpdateQueue: null | FunctionComponentUpdateQueue = (currentlyRenderingFiber.updateQueue: any);
+  
+  // componentUpdateQueue的顺序流程
+  // ABCDE => A => BA => CAB => DABC => EABCD
+  // componentUpdateQueue的lastEffect指向最后添加的effect对象，也就是最后一次执行的effect对象
   if (componentUpdateQueue === null) {
     // 生成新的updateQueue放在当前workInProgress的updateQueue上
     // { lastEffect: null }
@@ -1400,55 +1432,62 @@ function updateRef<T>(initialValue: T): {|current: T|} {
   return hook.memoizedState;
 }
 
-// fiberFlags  UpdateEffect | PassiveEffect
-// hookFlags  HookPassive
-// create
+// fiberFlags  UpdateEffect | PassiveEffect(useEffect) / UpdateEffect(useLayoutEffect)
+// hookFlags  HookPassive(useEffect) / HookLayout(useLayoutEffect)
+// create useEffect的回调函数
 // deps 依赖项数组
 // 创建新的hook对应useEffect
-// 创建新的effect对象放在当前workInProgress的updateQueue的末尾，返回这个effect
-// hook.memoizedState存放这个effect对象
+// 创建新的effect对象放在当前workInProgress的updateQueue的循环单链表上
+// ABCDE => A => BA => CAB => DABC => EABCD
+// hook.memoizedState存放这个effect对象，这个effect对象用于描述这个useEffect的行为
 function mountEffectImpl(fiberFlags, hookFlags, create, deps): void {
-  // 创建一个新的hook对象，存放在workInProgressHook链表最后
+  // 创建一个新的hook对象，存放在workInProgressHook链表最后，返回当前hook对象
   const hook = mountWorkInProgressHook();
-  // 依赖项数组
+  // 依赖项数组，不传就为null
   const nextDeps = deps === undefined ? null : deps;
   // 当前rendering workInProgress加上update和passive副作用
   currentlyRenderingFiber.flags |= fiberFlags;
-  // 生成新的effect对象放在当前workInProgress的updateQueue的末尾，返回这个effect
+  // 创建新的effect对象放在当前workInProgress的updateQueue的循环单链表上，返回这个effect
+  // workInProgress.updateQueue.lastEffect 指向最后添加的effect对象，也就是最后一次执行的effect对象
+  // ABCDE => A => BA => CAB => DABC => EABCD
   // hook.memoizedState存放这个effect对象
+  // 这个effect对象用于描述这个useEffect的行为
+  // mount阶段不会执行useEffect的回调函数生成destroy函数，等到执行回调的时候才会生成
   hook.memoizedState = pushEffect(
-    HookHasEffect | hookFlags,
+    HookHasEffect | hookFlags, // HookHasEffect | HookPassive(useEffect) / HookHasEffect | HookLayout(useLayoutEffect)
     create,
     undefined,
     nextDeps,
   );
 }
 
-// fiberFlags  UpdateEffect | PassiveEffect
-// hookFlags  HookPassive(0b100)
-// create
+// fiberFlags  UpdateEffect | PassiveEffect(useEffect) / UpdateEffect(useLayoutEffect)
+// hookFlags  HookPassive(useEffect) / HookLayout(useLayoutEffect)
+// create useEffect的回调函数
 // deps 依赖项数组
 // 获取对应的hook
 // 创建新的effect对象放在当前workInProgress的updateQueue的末尾，返回这个effect
 // hook.memoizedState存放这个effect对象
 function updateEffectImpl(fiberFlags, hookFlags, create, deps): void {
-  // 获取下一个workInProgressHook
+  // 获取下一个workInProgressHook，也就是当前hook对象
   const hook = updateWorkInProgressHook();
   // 依赖项数组
   const nextDeps = deps === undefined ? null : deps;
   let destroy = undefined;
 
   if (currentHook !== null) {
-    // 之前的effect对象
+    // 之前的effect对象，也就是上一轮useEffect设置的hook对象的对应的effect对象
+    // 会在提交阶段生成对应的destroy函数
     const prevEffect = currentHook.memoizedState;
     destroy = prevEffect.destroy;
     // 有依赖项数组
     if (nextDeps !== null) {
       const prevDeps = prevEffect.deps;
       // 新老依赖项数组相同
-      // 创建新的effect对象放在当前workInProgress的updateQueue的末尾
+      // 创建新的effect对象放在当前workInProgress的updateQueue对应的循环单链表上
+      // 然后return，也就是不给当前currentlyRenderingFiber添加副作用，那提交阶段就不会直接这个useEffect回调
       if (areHookInputsEqual(nextDeps, prevDeps)) {
-        pushEffect(hookFlags, create, destroy, nextDeps); // 0b100(useEffect)/0b010(useLayoutEffect)
+        pushEffect(hookFlags, create, destroy, nextDeps); // HookPassive
         return;
       }
     }
@@ -1456,12 +1495,14 @@ function updateEffectImpl(fiberFlags, hookFlags, create, deps): void {
 
   // 这里的情况是 currentHook为null || 没有依赖项数组 || 新老依赖项数组不同
 
-  // 当前rendering workInProgress加上update和passive副作用
+  // 当前渲染中的workInProgress加上update和passive副作用
+  // 在提交阶段就会根据这个副作用执行useEffect的回调函数
+  // 这里是和 依赖项不变的情况 不同的地方
   currentlyRenderingFiber.flags |= fiberFlags;
 
-  // 创建新的effect对象放在当前workInProgress的updateQueue的末尾
+  // 创建新的effect对象放在当前workInProgress的updateQueue对应的循环单链表上
   hook.memoizedState = pushEffect(
-    HookHasEffect | hookFlags, // 0b101(useEffect)/0b011(useLayoutEffect)
+    HookHasEffect | hookFlags, // HookHasEffect | HookPassive(useEffect) / HookHasEffect | HookLayout(useLayoutEffect)
     create,
     destroy,
     nextDeps,
@@ -1470,8 +1511,9 @@ function updateEffectImpl(fiberFlags, hookFlags, create, deps): void {
 
 // 首次useEffect
 // 创建新的hook对应useEffect
-// 创建新的effect对象放在当前workInProgress的updateQueue的末尾，返回这个effect
-// hook.memoizedState存放这个effect对象
+// 创建新的effect对象放在当前workInProgress的updateQueue的循环单链表上
+// ABCDE => A => BA => CAB => DABC => EABCD
+// hook.memoizedState存放这个effect对象，这个effect对象用于描述这个useEffect的行为
 function mountEffect(
   create: () => (() => void) | void, // 副作用回调
   deps: Array<mixed> | void | null, // 依赖项数组
@@ -1483,8 +1525,9 @@ function mountEffect(
     }
   }
   // 创建新的hook对应useEffect
-  // 创建新的effect对象放在当前workInProgress的updateQueue的末尾，返回这个effect
-  // hook.memoizedState存放这个effect对象
+  // 创建新的effect对象放在当前workInProgress的updateQueue的循环单链表上
+  // ABCDE => A => BA => CAB => DABC => EABCD
+  // hook.memoizedState存放这个effect对象，这个effect对象用于描述这个useEffect的行为
   // 这里带PassiveEffect标志，是要放在flushPassiveEffects中执行useEffect的副作用函数吗???
   return mountEffectImpl(
     UpdateEffect | PassiveEffect,
@@ -1928,12 +1971,20 @@ function rerenderOpaqueIdentifier(): OpaqueIDType | void {
 }
 
 // [number, setNumber] = useState(1)
-// 更新state，将更新结果暂时存放在hook.queue.pending链表末尾新创建的update上，用于后续的更新
+// [state, dispatch] = useReducer(reducer, initialState)
+// 更新state，将更新结果包裹成update对象，存放在hook.queue.pending单链表上，用于后续的更新
+// hook.queue.pending上的update对象循环单链表会在后续执行hooks时统一更新到newState
+// dispatch => scheduleUpdateOnFiber => performUnitOfWork => beginWork => renderWithHooks => 执行构造函数 => 执行hooks => 更新state
 // hook是存放在workInProgress.memoizedState上
+// ABCDE => A => BA => CAB => DABC => EABCD
+// 后续处理的时候会将queue.pending.next作为第一个
+// useState和useReducer类似，不同的是useState使用的是basicStateReducer，而useReducer使用的是手动传入的reducer
 function dispatchAction<S, A>(
   fiber: Fiber, // 当前render中的workInProgress currentlyRenderingFiber
   queue: UpdateQueue<S, A>, // 当前hook的queue
-  action: A, // setNumber(xxx)传入的参数xxx，可能是新值，也可能是返回新值的回调函数
+  // useState => setNumber(xxx)传入的参数 xxx，可能是新值，也可能是返回新值的回调函数
+  // useReducer => dispatch({type: 'xxx'})的参数 {type: 'xxx'}
+  action: A,
 ) {
   if (__DEV__) {
     if (typeof arguments[3] === 'function') {
@@ -1998,8 +2049,9 @@ function dispatchAction<S, A>(
 
     didScheduleRenderPhaseUpdateDuringThisPass = didScheduleRenderPhaseUpdate = true;
   } else {
-    // 将新reduer和state更新到queue.pending.update上
-    // 先将更新记录下来，performSyncWorkOnRoot中在进行render和commit???
+    // 将新reduer和state更新到hook.queue.pending上的update对象
+    // hook.queue.pending上的update对象循环单链表会在后续执行hooks时统一更新到newState
+    // dispatch => scheduleUpdateOnFiber => performUnitOfWork => beginWork => renderWithHooks => 执行构造函数 => 执行hooks => 更新state
     if (
       fiber.lanes === NoLanes &&
       (alternate === null || alternate.lanes === NoLanes)
@@ -2007,6 +2059,8 @@ function dispatchAction<S, A>(
       // The queue is currently empty, which means we can eagerly compute the
       // next state before entering the render phase. If the new state is the
       // same as the current state, we may be able to bail out entirely.
+      // useState => basicStateReducer
+      // useReducer => 手动传入的reducer
       const lastRenderedReducer = queue.lastRenderedReducer;
       if (lastRenderedReducer !== null) {
         let prevDispatcher;
@@ -2034,7 +2088,7 @@ function dispatchAction<S, A>(
           update.eagerReducer = lastRenderedReducer;
           // action处理之后的新值
           update.eagerState = eagerState;
-          // eagerState和currentState为同一个值，即新老值相同，直接return，不需要re-render
+          // eagerState和currentState为同一个值，即新老值相同，直接return
           if (is(eagerState, currentState)) {
             // Fast path. We can bail out without scheduling React to re-render.
             // It's still possible that we'll need to rebase this update later,

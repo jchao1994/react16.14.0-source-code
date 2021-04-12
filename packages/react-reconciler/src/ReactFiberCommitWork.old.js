@@ -341,8 +341,9 @@ function commitBeforeMutationLifeCycles(
   );
 }
 
-// tag  HookLayout | HookHasEffect
+// tag  HookLayout | HookHasEffect，表示useLayoutEffect
 // 将finishedWork.updateQueue.lastEffect之后的effect都执行destroy
+// 这里处理的是useLayoutEffect
 function commitHookEffectListUnmount(tag: number, finishedWork: Fiber) {
   const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue: any);
   const lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
@@ -365,10 +366,12 @@ function commitHookEffectListUnmount(tag: number, finishedWork: Fiber) {
   }
 }
 
-// 处理hook useEffect，执行副作用回调
-// finishedWork.updateQueue上存放着带useEffect的副作用回调的effect对象
+// tag 为 HookLayout | HookHasEffect，表示useLayoutEffect
+// 处理hook useLayoutEffect，执行副作用回调
+// finishedWork.updateQueue上存放着带useLayoutEffect的副作用回调的effect对象
 // effect.create就是副作用回调，create()的返回值函数作为destroy，在卸载组件时调用
 // 遍历updateQueue，effect.destroy赋值为effect.create()的执行结果
+// 这里处理的是useLayoutEffect
 function commitHookEffectListMount(tag: number, finishedWork: Fiber) {
   const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue: any);
   const lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
@@ -376,10 +379,8 @@ function commitHookEffectListMount(tag: number, finishedWork: Fiber) {
     const firstEffect = lastEffect.next;
     let effect = firstEffect;
     do {
-      // 这里的tag为 HookLayout(0b010) | HookHasEffect(0b001)，也就是0b011
-      // 只有当effect.tag的后两位均为1时，才会执行副作用函数
-      // 依赖项数组内容发生变化，effect.tag为 0b101(useEffect)/0b011(useLayoutEffect)，没有发生变化为 0b100
-      // 这里只有发生变化的useLayoutEffect才会执行副作用回调
+      // 这里的tag为 HookLayout(0b010) | HookHasEffect(0b001)，也就是0b011，表示useLayoutEffect
+      // 只有当effect.tag的后两位均为1时，才会执行副作用函数，也就是useLayoutEffect
       if ((effect.tag & tag) === tag) {
         // Mount
         const create = effect.create;
@@ -499,7 +500,7 @@ export function commitPassiveEffectDurations(
 }
 
 // 提交生命周期
-// FunctionComponent  执行useEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
+// FunctionComponent  执行useLayoutEffect副作用回调，将返回值函数作为destroy，在卸载组件时调用destroy
 // ClassComponent  触发componentDidMount或componentDidUpdate，清空updateQueue以其所有effect的callback
 // HostRoot  处理子child，清空updateQueue以其所有effect的callback
 // HostComponent  触发自动聚焦autoFocus
@@ -525,10 +526,12 @@ function commitLifeCycles(
       ) {
         try {
           startLayoutEffectTimer();
-          // 处理hook useEffect，执行副作用回调
-          // finishedWork.updateQueue上存放着带useEffect的副作用回调的effect对象
+          // tag 为 HookLayout | HookHasEffect，表示useLayoutEffect
+          // 处理hook useLayoutEffect，执行副作用回调
+          // finishedWork.updateQueue上存放着带useLayoutEffect的副作用回调的effect对象
           // effect.create就是副作用回调，create()的返回值函数作为destroy，在卸载组件时调用
           // 遍历updateQueue，effect.destroy赋值为effect.create()的执行结果
+          // 这里处理的是useLayoutEffect
           commitHookEffectListMount(HookLayout | HookHasEffect, finishedWork);
         } finally {
           recordLayoutEffectDuration(finishedWork);
@@ -1028,7 +1031,7 @@ function commitDetachRef(current: Fiber) {
 // 用户发起的errors不应该删除，而host发起的errors应该删除
 
 // 递归nextEffect及其所有children执行这个方法，提交卸载
-// FunctionComponent 对需要删除的effect执行destroy方法，destroy也就是useEffect的返回值函数
+// FunctionComponent 对需要删除的effect执行destroy方法，destroy也就是useEffect(异步调度)/useLayoutEffect(同步调度)的返回值函数
 // ClassComponent 重置ref，调用用户传入的componentWillUnmount方法
 // HostComponent 重置ref
 // portal组件 重置container
@@ -1060,8 +1063,10 @@ function commitUnmount(
             const {destroy, tag} = effect;
             if (destroy !== undefined) {
               if ((tag & HookPassive) !== NoHookEffect) {
+                // useEffect 异步调度
                 enqueuePendingPassiveHookEffectUnmount(current, effect);
               } else {
+                // useLayoutEffect 同步调度
                 if (
                   enableProfilerTimer &&
                   enableProfilerCommitHooks &&
@@ -1147,7 +1152,7 @@ function commitUnmount(
 }
 
 // 递归node及其所有children，执行commitUnmount方法，提交卸载
-// Block 对需要删除的effect执行destroy方法
+// FunctionComponent/Block 对需要删除的effect执行destroy方法，destroy也就是useEffect(异步调度)/useLayoutEffect(同步调度)的返回值函数
 // ClassComponent 重置ref，调用用户传入的componentWillUnmount方法
 // HostComponent 重置ref
 // portal组件 重置container
@@ -1163,7 +1168,7 @@ function commitNestedUnmounts(
   // we do an inner loop while we're still inside the host node.
   let node: Fiber = root;
   // 递归node及其所有children，执行commitUnmount方法，提交卸载
-  // Block 对需要删除的effect执行destroy方法
+  // FunctionComponent/Block 对需要删除的effect执行destroy方法，destroy也就是useEffect(异步调度)/useLayoutEffect(同步调度)的返回值函数
   // ClassComponent 重置ref，调用用户传入的componentWillUnmount方法
   // HostComponent 重置ref
   // portal组件 重置container
@@ -1306,7 +1311,9 @@ function isHostParent(fiber: Fiber): boolean {
   );
 }
 
-// 找到第一个sibling的第一个host child，返回其对应的stateNode
+// 找到fiber对应的dom进行insertBefore的位置dom
+// 这里对组件fiber做了特殊处理，因为组件fiber没有dom，需要转换为其根节点fiber
+// 另外，带Placement副作用的组件fiber需要跳过，因为这种fiber也是需要移动的，其dom不能作为位置dom
 function getHostSibling(fiber: Fiber): ?Instance {
   // We're going to search forward into the tree until we find a sibling host
   // node. Unfortunately, if multiple insertions are done in a row we have to
@@ -1316,6 +1323,9 @@ function getHostSibling(fiber: Fiber): ?Instance {
   siblings: while (true) {
     // If we didn't find anything, let's try the next sibling.
     // 没有sibling就找到return.sibling直到return为null
+    // 这个while循环是为了给组件fiber的根节点fiber找到其对应dom的insertBefore的位置dom
+    // node.sibling为null，说明node是组件fiber的根节点fiber，
+    // 这种情况下，node.return.sibling才是这个node实际意义上的sibling
     while (node.sibling === null) {
       if (node.return === null || isHostParent(node.return)) {
         // If we pop out of the root or hit the parent the fiber we are the
@@ -1327,10 +1337,12 @@ function getHostSibling(fiber: Fiber): ?Instance {
     // 走到这里，表明找到了node.sibling
     // 给sibling加上return指引
     node.sibling.return = node.return;
-    // node指向其sibling
+    // node指向其sibling兄弟fiber
     node = node.sibling;
-    // node不是host node
-    // 一直取child直到找到第一个host node
+    // node不是host node(也就是不是原生dom fiber，一般为组件fiber)
+    // 找到组件fiber的child，也就是根节点fiber，如果还是组件fiber，继续找根节点fiber，直到是原生dom fiber
+    // 寻找原生dom根fiber的流程中，如果组件fiber带Placement副作用，说明该fiber也需要移动位置，那insertBefore的位置dom和该fiber就无关，
+    // 所以直接跳出当前循环，继续从该fiber的sibling开始
     while (
       node.tag !== HostComponent &&
       node.tag !== HostText &&
@@ -1340,7 +1352,7 @@ function getHostSibling(fiber: Fiber): ?Instance {
       // Try to search down until we find one.
       // node不是host node
 
-      // node有Placement副作用，直接下一个循环
+      // node有Placement副作用，直接跳到下一个循环，也就是继续找兄弟fiber
       if (node.flags & Placement) {
         // If we don't have a child, try the siblings instead.
         continue siblings;
@@ -1351,6 +1363,7 @@ function getHostSibling(fiber: Fiber): ?Instance {
       if (node.child === null || node.tag === HostPortal) {
         continue siblings;
       } else {
+        // 找到兄弟fiber node上的第一个子fiber node.child(也就是组件fiber的根fiber)
         node.child.return = node;
         node = node.child;
       }
@@ -1358,6 +1371,7 @@ function getHostSibling(fiber: Fiber): ?Instance {
     // Check if this host node is stable or about to be placed.
     // 这里已经找到了host node
     // node不需要Placement副作用，就返回node.stateNode
+    // 只有没有Placement副作用的fiber对应的dom，才能作为insertBefore的位置dom
     if (!(node.flags & Placement)) {
       // Found it!
       return node.stateNode;
@@ -1418,7 +1432,9 @@ function commitPlacement(finishedWork: Fiber): void {
     parentFiber.flags &= ~ContentReset;
   }
 
-  // 找到第一个sibling的第一个host child，返回其对应的stateNode
+  // 找到fiber对应的dom进行insertBefore的位置dom
+  // 这里对组件fiber做了特殊处理，因为组件fiber没有dom，需要转换为其根节点fiber
+  // 另外，带Placement副作用的组件fiber需要跳过，因为这种fiber也是需要移动的，其dom不能作为位置dom
   const before = getHostSibling(finishedWork);
   // We only have the top Fiber that was inserted but we need to recurse down its
   // children to find all the terminal nodes.
@@ -1504,7 +1520,7 @@ function insertOrAppendPlacementNode(
   }
 }
 
-// 遍历current及其所有sibling进行卸载，对有必要的child也进行卸载
+// 遍历current及其所有sibling进行卸载，对有必要的child也进行卸载，这里会对根fiber对应的dom结构进行移除
 function unmountHostComponents(
   finishedRoot: FiberRoot,
   current: Fiber, // nextEffect
@@ -1640,6 +1656,11 @@ function unmountHostComponents(
         continue;
       }
     } else {
+      // 递归nextEffect及其所有children执行这个方法，提交卸载
+      // FunctionComponent 对需要删除的effect执行destroy方法，destroy也就是useEffect(异步调度)/useLayoutEffect(同步调度)的返回值函数
+      // ClassComponent 重置ref，调用用户传入的componentWillUnmount方法
+      // HostComponent 重置ref
+      // portal组件 重置container
       // 卸载node，然后对其child进行判断
       // 这里的node应该是没有对应dom结构，所以不用做移除???
       commitUnmount(finishedRoot, node, renderPriorityLevel);
@@ -1671,13 +1692,18 @@ function unmountHostComponents(
 }
 
 // 提交删除，对current及其children(这也可能还有sibling)做卸载，移除dom结构
-// 这里会调用componentWillUnmount
+// FunctionComponent/Block 对需要删除的effect执行destroy方法，destroy也就是useEffect(异步调度)/useLayoutEffect(同步调度)的返回值函数
+// ClassComponent 重置ref，调用用户传入的componentWillUnmount方法
+// HostComponent 重置ref
+// portal组件 重置container
 // 最后重置current及其对应的currentFiber
+// 只对根fiber对应的dom结构进行移除，子fiber对应的dom自然就移除了，不需要对子fiber对应的dom进行额外的移除操作
 function commitDeletion(
   finishedRoot: FiberRoot,
   current: Fiber, // nextEffect
   renderPriorityLevel: ReactPriorityLevel,
 ): void {
+  // 只对根fiber对应的dom结构进行移除，子fiber对应的dom自然就移除了，不需要对子fiber对应的dom进行额外的移除操作
   if (supportsMutation) {
     // Recursively delete all host nodes from the parent.
     // Detach refs and call componentWillUnmount() on the whole subtree.
@@ -1686,8 +1712,11 @@ function commitDeletion(
     unmountHostComponents(finishedRoot, current, renderPriorityLevel);
   } else {
     // Detach refs and call componentWillUnmount() on the whole subtree.
-    // 递归current及其所有children(不处理current的sibling)，执行commitUnmount方法，提交卸载，不会移除dom结构
-    // 会调用componentWillUnmount
+    // 递归current及其所有children(不处理current的sibling)，执行commitUnmount方法，提交卸载，不会移除dom结构(因为父fiber对应的dom已经被移除了，子fiber对应的dom自然也就被移除了，不需要额外操作)
+    // FunctionComponent/Block 对需要删除的effect执行destroy方法，destroy也就是useEffect(异步调度)/useLayoutEffect(同步调度)的返回值函数
+    // ClassComponent 重置ref，调用用户传入的componentWillUnmount方法
+    // HostComponent 重置ref
+    // portal组件 重置container
     commitNestedUnmounts(finishedRoot, current, renderPriorityLevel);
   }
   const alternate = current.alternate; // nextEffect对应的currentFiber
@@ -1699,7 +1728,7 @@ function commitDeletion(
   }
 }
 
-// 做 销毁 显示/隐藏 更新container 更新dom(根据diff的结构updatePayload) 更新dom文本 的操作
+// 做 销毁 显示/隐藏 更新container 更新dom(根据diff的结构updatePayload) 更新dom文本 执行useLayoutEffect的destroy 的操作
 function commitWork(current: Fiber | null, finishedWork: Fiber): void {
   if (!supportsMutation) {
     switch (finishedWork.tag) {
@@ -1724,7 +1753,9 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
           try {
             // 记录layout effect开始时间
             startLayoutEffectTimer();
+            // tag  HookLayout | HookHasEffect，表示useLayoutEffect
             // 将finishedWork.updateQueue.lastEffect之后的effect都执行destroy
+            // 这里处理的是useLayoutEffect
             commitHookEffectListUnmount(
               HookLayout | HookHasEffect,
               finishedWork,
@@ -1800,11 +1831,17 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
       ) {
         try {
           startLayoutEffectTimer();
+          // tag  HookLayout | HookHasEffect，表示useLayoutEffect
+          // 将finishedWork.updateQueue.lastEffect之后的effect都执行destroy
+          // 这里处理的是useLayoutEffect
           commitHookEffectListUnmount(HookLayout | HookHasEffect, finishedWork);
         } finally {
           recordLayoutEffectDuration(finishedWork);
         }
       } else {
+        // tag  HookLayout | HookHasEffect，表示useLayoutEffect
+        // 将finishedWork.updateQueue.lastEffect之后的effect都执行destroy
+        // 这里处理的是useLayoutEffect
         commitHookEffectListUnmount(HookLayout | HookHasEffect, finishedWork);
       }
       return;

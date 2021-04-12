@@ -548,7 +548,7 @@ export function processUpdateQueue<State>(
 
     // 遍历workInProgress的新的baseQueue(包括加上的pendingQueue)
     // 更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
-    // 如果update有callback，给workInProgress加上Callback副作用，会completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
+    // 如果update有callback，给workInProgress加上Callback副作用，会在completeUnitOfWork时将自身添加到父workInProgress的effect list链表的最后
     // 同时在workInProgress.updateQueue.effects中添加这个update对象，会在commit的第三阶段统一执行workInProgress.updateQueue.effects中的所有update对象的callback
     // 这个过程中有可能会产生newFirstBaseUpdate和newLastBaseUpdate(后面统称newBaseUpdate链表)，什么情况下会产生呢???
     let update = firstBaseUpdate;
@@ -611,8 +611,9 @@ export function processUpdateQueue<State>(
         }
 
         // Process this update.
-        // 更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
+        // 根据当前update更新state，这里的newState可能是合并之后的新state，也可能是直接做覆盖处理的新state，可能只是做了标记返回了老state
         // setState传入的update的tag为UpdateState，这里会进行更新合并处理
+        // newState会经过每一个update进行层层更新，最后的newState是所有update更新后的结果
         newState = getStateFromUpdate(
           workInProgress,
           queue,
@@ -642,13 +643,13 @@ export function processUpdateQueue<State>(
         // pending updates
         pendingQueue = queue.shared.pending;
         if (pendingQueue === null) {
-          // 前面处理过，这里就为null，根据前面的逻辑这里只能是null
+          // 在遍历update过程中，如果没有调用新的setState，那么这里为null，跳出循环
           break;
         } else {
           // An update was scheduled from inside a reducer. Add the new
           // pending updates to the end of the list and keep processing.
           
-          // 根据前面的逻辑这里不可能执行到，这里处理什么情况???
+          // 在遍历update过程中，如果没有调用新的setState，那么这里还会有workInProgress.updateQueue.shared.pending
           // 如果还有pendingQueue，加到baseQueue的最后，继续遍历
 
           const lastPendingUpdate = pendingQueue;

@@ -330,22 +330,26 @@ function ChildReconciler(shouldTrackSideEffects) {
     return null;
   }
 
-  // 对保留的currentFiber及其之后的所有fiber生成map
-  // 键为fiber的key或者index
+  // 从开头第一个不可复用的老currentFiber开始，构建existingChildren的map结构，用于第二轮遍历
+  // key为fiber的 key/index，value为fiber
   function mapRemainingChildren(
     returnFiber: Fiber, // 父fiber
-    currentFirstChild: Fiber, // 老的currentFiber
+    currentFirstChild: Fiber, // 开头第一个不可复用的老currentFiber
   ): Map<string | number, Fiber> {
     // Add the remaining children to a temporary map so that we can find them by
     // keys quickly. Implicit (null) keys get added to this set with their index
     // instead.
+    // 从开头第一个不可复用的老currentFiber开始，构建existingChildren的map结构
+    // key为fiber的 key/index，value为fiber
     const existingChildren: Map<string | number, Fiber> = new Map();
 
     let existingChild = currentFirstChild;
     while (existingChild !== null) {
       if (existingChild.key !== null) {
+        // 以key作为map的key
         existingChildren.set(existingChild.key, existingChild);
       } else {
+        // 以index作为map的key
         existingChildren.set(existingChild.index, existingChild);
       }
       existingChild = existingChild.sibling;
@@ -365,7 +369,7 @@ function ChildReconciler(shouldTrackSideEffects) {
 
   // 判断新workInProgress是否需要移动，对需要移动的workInProgress添加flags为Placement
   // 根据上一个workInProgress的位置index获取当前workInProgress的位置index
-  // 不是很准确???
+  // 如果是新创建的或是需要移动的，标记Placement，不修改lastPlacedIndex
   // abc => bdeca
   // ade需要移动，bc不需要移动
   function placeChild(
@@ -724,25 +728,28 @@ function ChildReconciler(shouldTrackSideEffects) {
     return null;
   }
 
-  // 创建子workInProgress
-  // 流程和updateSlot一致，区别是updateSlot直接有老的currentFiber，而这里需要从existingChildren中获取
+  // 第二轮遍历，创建新的子workInProgress，此时existingChildren已经存储了剩下的老currentFiber的map
+  // 遍历每一个newChild，直接从existingChildren中找到 key/index 相同的老fiber进行复用，没有就进行创建
   function updateFromMap(
-    existingChildren: Map<string | number, Fiber>, // 老的currentFiber的map
+    existingChildren: Map<string | number, Fiber>, // 剩下的老currentFiber的map结构
     returnFiber: Fiber, // 父fiber
     newIdx: number,
-    newChild: any, // 新的newChild
+    newChild: any, // 剩下的新newChild
     lanes: Lanes,
   ): Fiber | null {
+    // 文本节点
     if (typeof newChild === 'string' || typeof newChild === 'number') {
       // Text nodes don't have keys, so we neither have to check the old nor
       // new node for the key. If both are text nodes, they match.
+      // 从existingChildren找到可复用的fiber
       const matchedFiber = existingChildren.get(newIdx) || null;
       return updateTextNode(returnFiber, matchedFiber, '' + newChild, lanes);
     }
 
     if (typeof newChild === 'object' && newChild !== null) {
       switch (newChild.$$typeof) {
-        case REACT_ELEMENT_TYPE: {
+        case REACT_ELEMENT_TYPE: { // 组件根节点
+          // 从existingChildren找到可复用的fiber
           const matchedFiber =
             existingChildren.get(
               newChild.key === null ? newIdx : newChild.key,
@@ -852,6 +859,15 @@ function ChildReconciler(shouldTrackSideEffects) {
 
   // 对children做dom diff，生成新的链表，并返回链表的第一个workInProgress
   // 这里会对newChildren中的每一项生成(新创建或复用)newFiber，并设置每一个newFiber的child sibling return
+  // 这里会进行两轮遍历，遍历的都是newChildren
+  // 第一轮遍历开始，新老index同步，找出开头可复用的fiber
+  // 第一轮遍历结束，如果没有newChild，就把剩下的老的删除，如果没有老的，就把剩下的newChild创建
+  // 如果新老都存在，说明开头存在index相同且key不同的fiber，需要进行第二轮遍历
+  // 第二轮遍历(剩下的newChildren)之前，根据剩下的老fiber生成existingChildren的map结构，key为老fiber的 key/index，value为老fiber，方便第二轮遍历时找到可复用的fiber
+  // 第二轮遍历(剩下的newChildren)开始，从existingChildren中找出可复用的fiber进行复用，如果没有，就进行创建
+  // 第二轮遍历结束，把existingChildren中剩下的标记删除副作用
+  // 删除处理，这里仅仅是标记删除副作用Deletion，且将需要删除的fiber添加到父fiber的effect链表最后
+  // 而处理删除副作用的时机是在提交阶段
   function reconcileChildrenArray(
     returnFiber: Fiber, // 父workInProgress
     currentFirstChild: Fiber | null, // 父currentFiber的第一个子fiber
@@ -902,9 +918,9 @@ function ChildReconciler(shouldTrackSideEffects) {
     // 第一个为resultingFirstChild，后面的通过sibling连接
     // 判断每一个新的workInProgress的位置是否需要移动并标记
     // 是否移动的判断和vue2.x一样
+    // 这里为第一轮遍历，找出新老children开头能复用的fiber
     for (; oldFiber !== null && newIdx < newChildren.length; newIdx++) {
       // 比较新老index
-      // 这里比较index的作用???
       if (oldFiber.index > newIdx) {
         // 老的index大于新的index，将老fiber往后移一个
         // 当前newChild不参与复用
@@ -949,7 +965,9 @@ function ChildReconciler(shouldTrackSideEffects) {
 
       // 判断新workInProgress是否需要移动，对需要移动的workInProgress添加flags为Placement
       // 根据上一个workInProgress的位置index获取当前workInProgress的位置index
+      // 如果是新创建的或是需要移动的，标记Placement，不修改lastPlacedIndex
       // lastPlacedIndex由上一个的位置index更新为当前的位置index
+      // 第一轮遍历一般都是能复用且不用移动的，这里主要是用于更新lastPlacedIndex
       lastPlacedIndex = placeChild(newFiber, lastPlacedIndex, newIdx);
       // 设置首个workInProgress和每一个的sibling形成链表结构
       if (previousNewFiber === null) {
@@ -1008,16 +1026,19 @@ function ChildReconciler(shouldTrackSideEffects) {
     // 走到这里，只有可能在第一次newChildren的遍历中跳出循环
     // 此时newChildren没有遍历完，且newChild为null，oldFiber不为null
     
-    // 对保留的currentFiber及其之后的所有fiber生成map
-    // 键为fiber的key或者index
+    // oldFiber指向开头第一个不可复用的fiber
+    // 从开头第一个不可复用的老currentFiber开始，构建existingChildren的map结构，用于第二轮遍历
+    // key为fiber的 key/index，value为fiber
     const existingChildren = mapRemainingChildren(returnFiber, oldFiber);
 
     // Keep scanning and use the map to restore deleted items as moves.
     // 将newChildren剩下的遍历完，完成链表结构和位置判断，再返回第一个子workInProgress
-    // 流程与第一个newChildren的遍历一致，区别是上面直接有老的currentFiber，而这里需要从existingChildren中获取
+    // 第二轮遍历，这里已经处理完开头可以复用的fiber了
+    // 创建新的子workInProgress，此时existingChildren已经存储了剩下的老currentFiber的map
+    // 遍历每一个newChild，直接从existingChildren中找到 key/index 相同的老fiber进行复用，没有就进行创建
     for (; newIdx < newChildren.length; newIdx++) {
-      // 创建子workInProgress
-      // 流程和updateSlot一致，区别是updateSlot直接有老的currentFiber，而这里需要从existingChildren中获取
+      // 第二轮遍历，创建新的子workInProgress，此时existingChildren已经存储了剩下的老currentFiber的map
+      // 遍历每一个newChild，直接从existingChildren中找到 key/index 相同的老fiber进行复用，没有就进行创建
       const newFiber = updateFromMap(
         existingChildren,
         returnFiber,
@@ -1040,6 +1061,8 @@ function ChildReconciler(shouldTrackSideEffects) {
           }
         }
         // 判断新workInProgress是否需要移动，对需要移动的workInProgress添加flags为Placement
+        // 根据上一个workInProgress的位置index获取当前workInProgress的位置index
+        // 如果是新创建的或是需要移动的，标记Placement，不修改lastPlacedIndex
         lastPlacedIndex = placeChild(newFiber, lastPlacedIndex, newIdx);
         // 形成链表
         if (previousNewFiber === null) {
@@ -1500,7 +1523,7 @@ function ChildReconciler(shouldTrackSideEffects) {
     if (isObject) {
       switch (newChild.$$typeof) {
         case REACT_ELEMENT_TYPE:
-          // 单点元素节点diff
+          // 单点元素节点diff，组件的newChild(也就是组件的根节点)是对象
           return placeSingleChild(
             // 单element节点diff
             // 复用或者创建新的子workInProgress返回
@@ -1642,15 +1665,18 @@ export function cloneChildFibers(
     'Resuming work not yet implemented.',
   );
 
+  // 这里的workInProgress必然是复用的
+  // 如果没有child，就直接return
   if (workInProgress.child === null) {
     return;
   }
 
+  // 创建第一个newChild，这里是复用了currentChild
   let currentChild = workInProgress.child;
   let newChild = createWorkInProgress(currentChild, currentChild.pendingProps);
   workInProgress.child = newChild;
-
   newChild.return = workInProgress;
+  // 创建剩下的newChild，这里也是复用了对应的currentChild
   while (currentChild.sibling !== null) {
     currentChild = currentChild.sibling;
     newChild = newChild.sibling = createWorkInProgress(
@@ -1659,6 +1685,7 @@ export function cloneChildFibers(
     );
     newChild.return = workInProgress;
   }
+  // 最后一个子fiber的sibling设为null
   newChild.sibling = null;
 }
 

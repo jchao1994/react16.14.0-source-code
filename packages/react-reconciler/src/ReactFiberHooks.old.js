@@ -1694,18 +1694,24 @@ function mountDebugValue<T>(value: T, formatterFn: ?(value: T) => mixed): void {
 const updateDebugValue = mountDebugValue;
 
 // 首次渲染useCallback
+// hook.memoizedState存储callback和依赖项数组
 function mountCallback<T>(callback: T, deps: Array<mixed> | void | null): T {
   const hook = mountWorkInProgressHook();
+  // 依赖项数组，不传则为null
   const nextDeps = deps === undefined ? null : deps;
+  // hook.memoizedState存储callback和依赖项数组
   hook.memoizedState = [callback, nextDeps];
   return callback;
 }
 
 // 更新渲染useCallback
+// 有缓存callback且新老依赖项不变，就直接返回缓存的callback
+// 否则就重新缓存callback，逻辑同 mountCallback
 function updateCallback<T>(callback: T, deps: Array<mixed> | void | null): T {
   const hook = updateWorkInProgressHook();
   const nextDeps = deps === undefined ? null : deps;
   const prevState = hook.memoizedState;
+  // 有缓存callback且新老依赖项不变，就直接返回缓存的callback
   if (prevState !== null) {
     if (nextDeps !== null) {
       const prevDeps: Array<mixed> | null = prevState[1];
@@ -1715,30 +1721,43 @@ function updateCallback<T>(callback: T, deps: Array<mixed> | void | null): T {
       }
     }
   }
+  // 走到这里，要么没有缓存值，要么依赖项发生变化，需要重新缓存callback
+  // 下面的逻辑同 mountCallback
   hook.memoizedState = [callback, nextDeps];
   return callback;
 }
 
 // 首次渲染useMemo
+// hook.memoizedState存放缓存值和依赖项数组
 function mountMemo<T>(
   nextCreate: () => T,
   deps: Array<mixed> | void | null,
 ): T {
+  // 新建一个hook对象，将这个hook对象添加到workInProgressHook的最后
+  // currentlyRenderingFiber.memoizedState指向workInProgressHook链表的首个hook
+  // 返回指向当前hook对象的workInProgressHook
   const hook = mountWorkInProgressHook();
+  // 依赖项数组，不传则为null
   const nextDeps = deps === undefined ? null : deps;
+  // 计算值并缓存
   const nextValue = nextCreate();
+  // hook.memoizedState存放缓存值和依赖项数组
   hook.memoizedState = [nextValue, nextDeps];
   return nextValue;
 }
 
 // 更新渲染useMemo
+// 有缓存值，且新老依赖项没有变化，直接返回缓存的值
+// 否则，计算值并且进行缓存，逻辑同 mountMemo
 function updateMemo<T>(
   nextCreate: () => T,
   deps: Array<mixed> | void | null,
 ): T {
   const hook = updateWorkInProgressHook();
   const nextDeps = deps === undefined ? null : deps;
+  // [prevValue, prevDeps]
   const prevState = hook.memoizedState;
+  // 有缓存值，且新老依赖项没有变化，直接返回缓存的值
   if (prevState !== null) {
     // Assume these are defined. If they're not, areHookInputsEqual will warn.
     if (nextDeps !== null) {
@@ -1749,6 +1768,8 @@ function updateMemo<T>(
       }
     }
   }
+  // 走到这里，要么没有缓存值，要么依赖项发生变化，需要计算值并且进行缓存
+  // 下面的逻辑同 mountMemo
   const nextValue = nextCreate();
   hook.memoizedState = [nextValue, nextDeps];
   return nextValue;
